@@ -254,6 +254,7 @@ func TestRateLimitRetry(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithHTTP(srv.Client())
+	client.baseRetryDelay = 0
 	games, err := client.FetchGames(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("expected retry to succeed, got: %v", err)
@@ -273,6 +274,7 @@ func TestRateLimitExhausted(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithHTTP(srv.Client())
+	client.baseRetryDelay = 0
 	_, err := client.FetchGames(context.Background(), srv.URL)
 	if err == nil {
 		t.Fatal("expected error for rate limited request")

@@ -130,19 +130,21 @@ type gamesResponse struct {
 
 // Client fetches games from the Chess.com public API.
 type Client struct {
-	httpClient *http.Client
+	httpClient     *http.Client
+	baseRetryDelay time.Duration
 }
 
 // NewClient creates a new Chess.com API client with default settings.
 func NewClient() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: defaultTimeout},
+		httpClient:     &http.Client{Timeout: defaultTimeout},
+		baseRetryDelay: baseRetryDelay,
 	}
 }
 
 // NewClientWithHTTP creates a new Chess.com API client with a custom http.Client.
 func NewClientWithHTTP(httpClient *http.Client) *Client {
-	return &Client{httpClient: httpClient}
+	return &Client{httpClient: httpClient, baseRetryDelay: baseRetryDelay}
 }
 
 // FetchArchives returns the list of monthly archive URLs for the given username.
@@ -313,7 +315,7 @@ func (c *Client) doGet(ctx context.Context, url string) (io.ReadCloser, error) {
 			if attempt == maxRetries-1 {
 				return nil, fmt.Errorf("rate limited by Chess.com API (HTTP 429) after %d retries", maxRetries)
 			}
-			delay := time.Duration(math.Pow(2, float64(attempt))) * baseRetryDelay
+			delay := time.Duration(math.Pow(2, float64(attempt))) * c.baseRetryDelay
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
