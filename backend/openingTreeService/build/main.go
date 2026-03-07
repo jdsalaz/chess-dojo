@@ -39,6 +39,14 @@ const (
 	// Empirical byte estimates for response size calculation.
 	bytesPerGame     = 500
 	bytesPerPosition = 400
+
+	// LambdaGracePeriod is subtracted from the Lambda deadline so there is
+	// time to serialize and return partial results before the hard kill.
+	LambdaGracePeriod = 5 * time.Second
+
+	// DefaultLambdaTimeout is used when the incoming context has no deadline
+	// (e.g. in local testing outside Lambda).
+	DefaultLambdaTimeout = 55 * time.Second
 )
 
 var repository database.UserGetter = database.DynamoDB
@@ -80,6 +88,7 @@ type fetchResult struct {
 	game game.Game
 	err  error
 	src  Source
+	done bool // true when this source finished iterating all games
 }
 
 func main() {
@@ -129,9 +138,20 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 	maxGames := getMaxGames()
 
+	// Create a deadline that fires before the Lambda hard timeout so we can
+	// return partial results instead of being killed mid-response.
+	var deadlineCtx context.Context
+	var cancelDeadline context.CancelFunc
+	if deadline, ok := ctx.Deadline(); ok {
+		deadlineCtx, cancelDeadline = context.WithDeadline(ctx, deadline.Add(-LambdaGracePeriod))
+	} else {
+		deadlineCtx, cancelDeadline = context.WithTimeout(ctx, DefaultLambdaTimeout)
+	}
+	defer cancelDeadline()
+
 	// Fan out: fetch games from all sources concurrently.
 	// Use a cancellable context so fetchers stop when the budget is reached.
-	fetchCtx, cancelFetch := context.WithCancel(ctx)
+	fetchCtx, cancelFetch := context.WithCancel(deadlineCtx)
 	defer cancelFetch()
 
 	results := make(chan fetchResult, 64)
@@ -174,7 +194,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			for g, err := range games {
 				if err != nil {
 					// Don't report context cancellation as a source error;
-					// it means we hit the budget.
+					// it means we hit the budget or the graceful timeout.
 					if fetchCtx.Err() != nil {
 						return
 					}
@@ -186,6 +206,12 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 				case <-fetchCtx.Done():
 					return
 				}
+			}
+
+			// Signal that this source finished iterating all games.
+			select {
+			case results <- fetchResult{src: src, done: true}:
+			case <-fetchCtx.Done():
 			}
 		}(src)
 	}
@@ -201,6 +227,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	sourceErrors := make(map[string]SourceError)
 	truncated := false
 	gameLimitExceeded := false
+	completedSources := make(map[string]bool)
 
 	// Track the last game EndTime per source for cursor construction.
 	lastTimestamp := make(map[string]time.Time)
@@ -211,6 +238,11 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	}
 
 	for r := range results {
+		if r.done {
+			completedSources[sourceKey(r.src)] = true
+			continue
+		}
+
 		if r.err != nil {
 			key := fmt.Sprintf("%s:%s", r.src.Type, r.src.Username)
 			if _, exists := sourceErrors[key]; !exists {
@@ -254,6 +286,24 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		if !r.game.EndTime.IsZero() {
 			if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
 				lastTimestamp[key] = r.game.EndTime
+			}
+		}
+	}
+
+	// If the graceful timeout fired, mark as truncated and record source
+	// errors for any sources that did not finish.
+	if deadlineCtx.Err() == context.DeadlineExceeded {
+		truncated = true
+		for _, src := range req.Sources {
+			key := sourceKey(src)
+			if !completedSources[key] {
+				if _, exists := sourceErrors[key]; !exists {
+					sourceErrors[key] = SourceError{
+						Source:   src.Type,
+						Username: src.Username,
+						Error:    "request timed out before all games could be fetched",
+					}
+				}
 			}
 		}
 	}

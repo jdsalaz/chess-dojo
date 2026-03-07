@@ -805,6 +805,83 @@ func TestHandler_CursorResume(t *testing.T) {
 	}
 }
 
+// newSlowServer serves games after a delay, simulating a slow API.
+func newSlowServer(t *testing.T, delay time.Duration) *httptest.Server {
+	t.Helper()
+	games := mustReadFile(t, "../lichess/testdata/games.ndjson")
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write(games)
+	}))
+}
+
+func TestHandler_TimeoutPartialResults(t *testing.T) {
+	// Chess.com responds immediately; Lichess is slow and will be timed out.
+	chesscomSrv := newChesscomServer(t, "testuser")
+	defer chesscomSrv.Close()
+
+	slowLichessSrv := newSlowServer(t, 5*time.Second)
+	defer slowLichessSrv.Close()
+
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), slowLichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"},{"type":"lichess","username":"slowplayer"}]}`
+	event := makeEvent("player1", body)
+
+	// Use a short deadline so the graceful timeout fires quickly.
+	// The handler subtracts LambdaGracePeriod (5s) from the deadline,
+	// so we set a deadline of 5s + 200ms = effective fetch timeout of 200ms.
+	ctx, cancel := context.WithTimeout(context.Background(), LambdaGracePeriod+200*time.Millisecond)
+	defer cancel()
+
+	resp, err := handler(ctx, event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+
+	// Should have partial results: Chess.com games present.
+	if len(result.Games) == 0 {
+		t.Error("expected chess.com games in partial response")
+	}
+
+	// Response should be truncated with a cursor.
+	if !result.Truncated {
+		t.Error("expected truncated to be true after timeout")
+	}
+	if result.Cursor == nil {
+		t.Fatal("expected cursor when truncated by timeout")
+	}
+
+	// Should have a timeout source error for the slow Lichess source.
+	foundTimeoutError := false
+	for _, se := range result.SourceErrors {
+		if se.Source == "lichess" && se.Username == "slowplayer" {
+			foundTimeoutError = true
+			if !strings.Contains(se.Error, "timed out") {
+				t.Errorf("expected timeout error message, got: %s", se.Error)
+			}
+		}
+	}
+	if !foundTimeoutError {
+		t.Error("expected timeout source error for slow lichess source")
+	}
+}
+
 func TestHandler_PlainJSONEncoding(t *testing.T) {
 	chesscomSrv := newChesscomServer(t, "testuser")
 	defer chesscomSrv.Close()
