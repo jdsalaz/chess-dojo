@@ -264,6 +264,10 @@ func (c *Client) GamesByArchive(ctx context.Context, username string, since, unt
 			go func() {
 				defer wg.Done()
 				for idx := range work {
+					if fetchCtx.Err() != nil {
+						slots[idx] <- archiveResult{err: fetchCtx.Err()}
+						continue
+					}
 					games, err := c.FetchGames(fetchCtx, filtered[idx])
 					slots[idx] <- archiveResult{games: games, err: err}
 				}
