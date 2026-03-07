@@ -144,7 +144,7 @@ export class OpeningTree {
         if (this.gamesSortedByDate?.length !== this.gameData.size) {
             this.gamesSortedByDate = [...this.gameData.values()]
                 .sort((lhs: GameData, rhs: GameData) =>
-                    rhs.headers.Date.localeCompare(lhs.headers.Date),
+                    (rhs.headers.Date ?? '').localeCompare(lhs.headers.Date ?? ''),
                 )
                 .map((g) => g.url);
         }
@@ -301,7 +301,7 @@ export class OpeningTree {
                 continue;
             }
 
-            if (game.headers.Date > (lastPlayed?.headers.Date ?? '')) {
+            if ((game.headers.Date ?? '') > (lastPlayed?.headers.Date ?? '')) {
                 lastPlayed = game;
             }
 
