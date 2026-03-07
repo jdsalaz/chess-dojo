@@ -385,6 +385,12 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		// For Chess.com, timestamps are set at archive boundaries (above).
 		// For Lichess (newest-first), track the min EndTime so that on
 		// resume we can set "until" to fetch games older than this point.
+		//
+		// Known limitation: if two Lichess games share the exact same lastMoveAt
+		// millisecond and truncation fires between them, the second game will be
+		// excluded on resume because Lichess's "until" parameter is exclusive.
+		// This is extremely unlikely in practice (requires two games for the same
+		// player ending in the same server-side millisecond).
 		if r.src.Type == game.SourceLichess {
 			key := sourceKey(r.src)
 			if !r.game.EndTime.IsZero() {

@@ -15,6 +15,11 @@ type SourceCursor struct {
 	// LastUntil is the min EndTime seen for sources that paginate backwards
 	// (newest-first), such as Lichess. On resume, this value is sent as the
 	// "until" parameter so the next page returns games older than this point.
+	//
+	// Known limitation: if two games share the exact same lastMoveAt millisecond
+	// and truncation fires between them, the second game will be silently lost
+	// on resume because Lichess treats "until" as exclusive (lastMoveAt < until).
+	// This is extremely unlikely (same player, same server-side millisecond).
 	LastUntil time.Time `json:"lastUntil,omitempty"`
 	Completed bool      `json:"completed,omitempty"`
 }
