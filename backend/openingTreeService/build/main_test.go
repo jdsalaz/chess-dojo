@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/api"
@@ -559,6 +562,104 @@ func TestHandler_GameLimitNotExceeded(t *testing.T) {
 	}
 	if result.GameLimit != 1000 {
 		t.Errorf("expected gameLimit 1000, got %d", result.GameLimit)
+	}
+}
+
+func TestHandler_DateRangeFiltering(t *testing.T) {
+	// Track which Chess.com archive game endpoints are actually fetched.
+	var fetchedArchives []string
+	var mu sync.Mutex
+
+	archives := mustReadFile(t, "../chesscom/testdata/archives.json")
+	games := mustReadFile(t, "../chesscom/testdata/games.json")
+
+	chesscomMux := http.NewServeMux()
+	chesscomMux.HandleFunc("/pub/player/testuser/games/archives", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(archives)
+	})
+	chesscomMux.HandleFunc("/pub/player/testuser/games/", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		fetchedArchives = append(fetchedArchives, r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(games)
+	})
+	chesscomSrv := httptest.NewServer(chesscomMux)
+	defer chesscomSrv.Close()
+
+	// Track the Lichess request URL to verify since/until query params.
+	var lichessRequestURL string
+	lichessMux := http.NewServeMux()
+	lichessGames := mustReadFile(t, "../lichess/testdata/games.ndjson")
+	lichessMux.HandleFunc("/api/games/user/", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		lichessRequestURL = r.URL.String()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write(lichessGames)
+	})
+	lichessSrv := httptest.NewServer(lichessMux)
+	defer lichessSrv.Close()
+
+	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Filter to January 2024 only.
+	// Chess.com archives: 2023/11, 2023/12 should be excluded; 2024/01 included; 2024/02 excluded.
+	// Lichess: since/until should appear as millisecond query params.
+	since := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC)
+
+	body := fmt.Sprintf(
+		`{"sources":[{"type":"chesscom","username":"testuser"},{"type":"lichess","username":"testplayer"}],"since":"%s","until":"%s"}`,
+		since.Format(time.RFC3339), until.Format(time.RFC3339),
+	)
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+	if len(result.Games) == 0 {
+		t.Fatal("expected games in response")
+	}
+
+	// Verify Chess.com: only the 2024/01 archive should have been fetched.
+	mu.Lock()
+	archivesCopy := append([]string(nil), fetchedArchives...)
+	mu.Unlock()
+
+	if len(archivesCopy) != 1 {
+		t.Errorf("expected 1 Chess.com archive fetched, got %d: %v", len(archivesCopy), archivesCopy)
+	}
+	for _, path := range archivesCopy {
+		if !strings.Contains(path, "2024/01") {
+			t.Errorf("unexpected archive fetched: %s (expected only 2024/01)", path)
+		}
+	}
+
+	// Verify Lichess: request URL should contain since and until query params.
+	mu.Lock()
+	lichessURL := lichessRequestURL
+	mu.Unlock()
+
+	sinceMillis := fmt.Sprintf("since=%d", since.UnixMilli())
+	untilMillis := fmt.Sprintf("until=%d", until.UnixMilli())
+	if !strings.Contains(lichessURL, sinceMillis) {
+		t.Errorf("Lichess request URL missing since param.\n  want substring: %s\n  got URL: %s", sinceMillis, lichessURL)
+	}
+	if !strings.Contains(lichessURL, untilMillis) {
+		t.Errorf("Lichess request URL missing until param.\n  want substring: %s\n  got URL: %s", untilMillis, lichessURL)
 	}
 }
 
