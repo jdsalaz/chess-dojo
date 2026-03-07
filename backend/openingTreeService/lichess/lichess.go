@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -216,7 +217,7 @@ func (c *Client) Games(ctx context.Context, params FetchParams) iter.Seq2[game.G
 func (c *Client) buildURL(params FetchParams) string {
 	username := strings.TrimSpace(params.Username)
 
-	u := fmt.Sprintf("%s/api/games/user/%s?pgnInJson=true", baseURL, username)
+	u := fmt.Sprintf("%s/api/games/user/%s?pgnInJson=true", baseURL, url.PathEscape(username))
 
 	if params.Max > 0 {
 		u += fmt.Sprintf("&max=%d", params.Max)

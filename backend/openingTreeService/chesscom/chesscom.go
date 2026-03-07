@@ -10,6 +10,7 @@ import (
 	"io"
 	"iter"
 	"math"
+	"net/url"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -150,7 +151,7 @@ func NewClientWithHTTP(httpClient *http.Client) *Client {
 // FetchArchives returns the list of monthly archive URLs for the given username.
 // Archives are returned in the order provided by the API (ascending chronological).
 func (c *Client) FetchArchives(ctx context.Context, username string) ([]string, error) {
-	url := fmt.Sprintf("%s/%s/games/archives", baseURL, strings.ToLower(username))
+	url := fmt.Sprintf("%s/%s/games/archives", baseURL, url.PathEscape(strings.ToLower(username)))
 
 	body, err := c.doGet(ctx, url)
 	if err != nil {
