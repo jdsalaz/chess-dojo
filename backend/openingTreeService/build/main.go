@@ -64,6 +64,13 @@ type Source struct {
 	Username string          `json:"username"`
 }
 
+// BuildRequest is the JSON payload sent by the frontend.
+//
+// Since and Until define the date range filter. These MUST be re-sent on
+// cursor resume requests — the cursor only stores pagination position,
+// not the original date bounds. Omitting them on resume will cause
+// Lichess to stream all games older than the cursor position with no
+// lower bound.
 type BuildRequest struct {
 	Sources []Source         `json:"sources"`
 	Since   *string          `json:"since,omitempty"`
@@ -200,6 +207,11 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		go func(src Source) {
 			defer wg.Done()
 
+			// sinceTime and untilTime come from the request, not from the
+			// cursor. The client is responsible for re-sending consistent
+			// Since/Until values across pages. The cursor only adjusts one
+			// bound (since for Chess.com, until for Lichess) to narrow the
+			// window; the other bound is always the client-supplied value.
 			since, until := sinceTime, untilTime
 
 			// If a cursor is provided, resume from where the previous page
