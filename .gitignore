@@ -9,3 +9,4 @@ node_modules/
 .runtime/
 .logs/
 .beads/
+dolt/
