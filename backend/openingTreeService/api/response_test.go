@@ -339,6 +339,90 @@ func TestFromOpeningTree_GamesAsArrayNotObject(t *testing.T) {
 	}
 }
 
+func TestFromOpeningTree_RoundTrip(t *testing.T) {
+	tree := openingtree.New()
+
+	g := &game.Game{
+		URL:           "https://example.com/round-trip",
+		Result:        game.ResultWhite,
+		Source:        game.SourceLichess,
+		PlayerColor:   "white",
+		WhiteUsername:  "alice",
+		BlackUsername:  "bob",
+		WhiteRating:   1600,
+		BlackRating:   1550,
+		TimeClass:     game.TimeClassBlitz,
+		Rated:         true,
+		PGN: `[Event "RT"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0`,
+	}
+	if _, err := tree.IndexGame(g); err != nil {
+		t.Fatalf("IndexGame error: %v", err)
+	}
+
+	resp := FromOpeningTree(tree)
+
+	// Marshal to JSON (what the backend sends over the wire).
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("json.Marshal error: %v", err)
+	}
+
+	// Unmarshal back into the same Response type (simulates frontend deserialization).
+	var roundTripped Response
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("json.Unmarshal error: %v", err)
+	}
+
+	// Verify game survives the round trip.
+	gm, ok := roundTripped.Games[g.URL]
+	if !ok {
+		t.Fatalf("game %s not found after round trip", g.URL)
+	}
+	if gm.Source.Type != "lichess" {
+		t.Errorf("source.type = %q, want %q", gm.Source.Type, "lichess")
+	}
+	if gm.White != "alice" {
+		t.Errorf("white = %q, want %q", gm.White, "alice")
+	}
+	if gm.Black != "bob" {
+		t.Errorf("black = %q, want %q", gm.Black, "bob")
+	}
+	if gm.WhiteElo != 1600 {
+		t.Errorf("whiteElo = %d, want 1600", gm.WhiteElo)
+	}
+	if gm.BlackElo != 1550 {
+		t.Errorf("blackElo = %d, want 1550", gm.BlackElo)
+	}
+	if gm.PlyCount != 4 {
+		t.Errorf("plyCount = %d, want 4", gm.PlyCount)
+	}
+	if gm.Headers["Event"] != "RT" {
+		t.Errorf("headers[Event] = %q, want %q", gm.Headers["Event"], "RT")
+	}
+
+	// Verify position survives the round trip.
+	startFEN := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+	pos, ok := roundTripped.Positions[startFEN]
+	if !ok {
+		t.Fatalf("starting position not found after round trip")
+	}
+	if pos.White != 1 || pos.Black != 0 || pos.Draws != 0 {
+		t.Errorf("W/B/D = %d/%d/%d, want 1/0/0", pos.White, pos.Black, pos.Draws)
+	}
+	if len(pos.Games) != 1 || pos.Games[0] != g.URL {
+		t.Errorf("games = %v, want [%s]", pos.Games, g.URL)
+	}
+	if len(pos.Moves) != 1 || pos.Moves[0].SAN != "e4" {
+		t.Errorf("moves = %v, want [e4]", pos.Moves)
+	}
+	if len(pos.Moves[0].Games) != 1 || pos.Moves[0].Games[0] != g.URL {
+		t.Errorf("move games = %v, want [%s]", pos.Moves[0].Games, g.URL)
+	}
+}
+
 func TestSortedKeys(t *testing.T) {
 	m := map[string]struct{}{
 		"c": {},

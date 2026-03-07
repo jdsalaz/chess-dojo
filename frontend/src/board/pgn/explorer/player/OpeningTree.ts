@@ -81,16 +81,16 @@ export class OpeningTree {
         const positionData = new Map<string, PositionData>();
         for (const [fen, bp] of Object.entries(resp.positions)) {
             positionData.set(fen, {
-                white: bp.White,
-                black: bp.Black,
-                draws: bp.Draws,
-                games: new Set(Object.keys(bp.Games ?? {})),
-                moves: (bp.Moves ?? []).map((m) => ({
-                    san: m.SAN,
-                    white: m.White,
-                    black: m.Black,
-                    draws: m.Draws,
-                    games: new Set(Object.keys(m.Games ?? {})),
+                white: bp.white,
+                black: bp.black,
+                draws: bp.draws,
+                games: new Set(bp.games ?? []),
+                moves: (bp.moves ?? []).map((m) => ({
+                    san: m.san,
+                    white: m.white,
+                    black: m.black,
+                    draws: m.draws,
+                    games: new Set(m.games ?? []),
                 })),
             });
         }
@@ -571,29 +571,29 @@ const BACKEND_TIME_CLASS_MAP: Record<string, OnlineGameTimeClass> = {
 };
 
 function convertBackendGame(bg: BackendIndexedGame): GameData {
-    const sourceType = bg.source === 'lichess' ? SourceType.Lichess : SourceType.Chesscom;
+    const sourceType = bg.source.type === 'lichess' ? SourceType.Lichess : SourceType.Chesscom;
     const playerColor = bg.playerColor === 'black' ? Color.Black : Color.White;
     const ratingSystem =
         sourceType === SourceType.Lichess ? RatingSystem.Lichess : RatingSystem.Chesscom;
     const source: PlayerSource = {
         type: sourceType,
-        username: playerColor === Color.White ? bg.whiteUsername : bg.blackUsername,
+        username: playerColor === Color.White ? bg.white : bg.black,
     };
 
     return {
         source,
         playerColor,
-        white: bg.whiteUsername,
-        black: bg.blackUsername,
-        whiteElo: bg.whiteRating,
-        normalizedWhiteElo: getNormalizedRating(bg.whiteRating, ratingSystem),
-        blackElo: bg.blackRating,
-        normalizedBlackElo: getNormalizedRating(bg.blackRating, ratingSystem),
+        white: bg.white,
+        black: bg.black,
+        whiteElo: bg.whiteElo,
+        normalizedWhiteElo: getNormalizedRating(bg.whiteElo, ratingSystem),
+        blackElo: bg.blackElo,
+        normalizedBlackElo: getNormalizedRating(bg.blackElo, ratingSystem),
         result: bg.result as GameResult,
-        plyCount: bg.PlyCount,
+        plyCount: bg.plyCount,
         rated: bg.rated,
         url: bg.url,
-        headers: bg.Headers ?? {},
+        headers: bg.headers ?? {},
         timeClass: BACKEND_TIME_CLASS_MAP[bg.timeClass] ?? OnlineGameTimeClass.Rapid,
     };
 }

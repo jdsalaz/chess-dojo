@@ -103,35 +103,34 @@ export interface BuildPlayerOpeningTreeResponse {
 }
 
 export interface BackendPositionData {
-    White: number;
-    Black: number;
-    Draws: number;
-    Moves: BackendMoveData[] | null;
-    Games: Record<string, object>;
+    white: number;
+    black: number;
+    draws: number;
+    moves: BackendMoveData[] | null;
+    games: string[];
 }
 
 export interface BackendMoveData {
-    SAN: string;
-    White: number;
-    Black: number;
-    Draws: number;
-    Games: Record<string, object>;
+    san: string;
+    white: number;
+    black: number;
+    draws: number;
+    games: string[];
 }
 
 export interface BackendIndexedGame {
-    pgn: string;
+    source: { type: string };
     playerColor: string;
-    whiteUsername: string;
-    blackUsername: string;
-    whiteRating: number;
-    blackRating: number;
+    white: string;
+    black: string;
+    whiteElo: number;
+    blackElo: number;
     result: string;
-    timeClass: string;
+    plyCount: number;
     rated: boolean;
     url: string;
-    source: string;
-    PlyCount: number;
-    Headers: Record<string, string>;
+    headers: Record<string, string>;
+    timeClass: string;
 }
 
 /**
