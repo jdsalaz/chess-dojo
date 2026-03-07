@@ -433,6 +433,124 @@ describe('OpeningTree', () => {
         });
     });
 
+    describe('merge', () => {
+        it('merges two disjoint trees', () => {
+            const game1 = makeGame({ url: 'url1', headers: { Date: '2025.01.01' } });
+            const game2 = makeGame({ url: 'url2', headers: { Date: '2025.02.01' } });
+
+            const fen1 = START_FEN;
+            const fen2 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+
+            const pos1 = new Map<string, PositionData>();
+            pos1.set(fen1, makePosition(['url1'], [{ san: 'e4', games: ['url1'] }]));
+            const games1 = new Map<string, GameData>();
+            games1.set('url1', game1);
+            const tree1 = new OpeningTree(pos1, games1);
+
+            const pos2 = new Map<string, PositionData>();
+            pos2.set(fen2, makePosition(['url2'], [{ san: 'e5', games: ['url2'] }]));
+            const games2 = new Map<string, GameData>();
+            games2.set('url2', game2);
+            const tree2 = new OpeningTree(pos2, games2);
+
+            tree1.merge(tree2);
+
+            expect(tree1.getGameCount()).toBe(2);
+            expect(tree1.getGame('url1')).toBeDefined();
+            expect(tree1.getGame('url2')).toBeDefined();
+
+            const filters = makeFilters();
+            expect(tree1.getPosition(fen1, filters)).toBeDefined();
+            expect(tree1.getPosition(fen2, filters)).toBeDefined();
+        });
+
+        it('merges overlapping positions with different games', () => {
+            const game1 = makeGame({ url: 'url1', result: GameResult.White, headers: { Date: '2025.01.01' } });
+            const game2 = makeGame({ url: 'url2', result: GameResult.Black, headers: { Date: '2025.02.01' } });
+
+            const pos1 = new Map<string, PositionData>();
+            pos1.set(START_FEN, makePosition(['url1'], [{ san: 'e4', games: ['url1'] }], { white: 1, black: 0, draws: 0 }));
+            const games1 = new Map<string, GameData>();
+            games1.set('url1', game1);
+            const tree1 = new OpeningTree(pos1, games1);
+
+            const pos2 = new Map<string, PositionData>();
+            pos2.set(START_FEN, makePosition(['url2'], [{ san: 'd4', games: ['url2'] }], { white: 0, black: 1, draws: 0 }));
+            const games2 = new Map<string, GameData>();
+            games2.set('url2', game2);
+            const tree2 = new OpeningTree(pos2, games2);
+
+            tree1.merge(tree2);
+
+            const filters = makeFilters();
+            const position = tree1.getPosition(START_FEN, filters);
+            expect(position).toBeDefined();
+            expect(position!.white).toBe(1);
+            expect(position!.black).toBe(1);
+            expect(position!.moves).toHaveLength(2);
+        });
+
+        it('merges overlapping moves with same SAN', () => {
+            const game1 = makeGame({ url: 'url1', result: GameResult.White, headers: { Date: '2025.01.01' } });
+            const game2 = makeGame({ url: 'url2', result: GameResult.Draw, headers: { Date: '2025.02.01' } });
+
+            const pos1 = new Map<string, PositionData>();
+            pos1.set(START_FEN, makePosition(['url1'], [{ san: 'e4', games: ['url1'] }], { white: 1, black: 0, draws: 0 }));
+            const games1 = new Map<string, GameData>();
+            games1.set('url1', game1);
+            const tree1 = new OpeningTree(pos1, games1);
+
+            const pos2 = new Map<string, PositionData>();
+            pos2.set(START_FEN, makePosition(['url2'], [{ san: 'e4', games: ['url2'] }], { white: 0, black: 0, draws: 1 }));
+            const games2 = new Map<string, GameData>();
+            games2.set('url2', game2);
+            const tree2 = new OpeningTree(pos2, games2);
+
+            tree1.merge(tree2);
+
+            const filters = makeFilters();
+            const position = tree1.getPosition(START_FEN, filters);
+            expect(position).toBeDefined();
+            expect(position!.white).toBe(1);
+            expect(position!.draws).toBe(1);
+            expect(position!.moves).toHaveLength(1);
+            expect(position!.moves[0].san).toBe('e4');
+            expect(position!.moves[0].white).toBe(1);
+            expect(position!.moves[0].draws).toBe(1);
+        });
+
+        it('merges with empty tree as identity', () => {
+            const game1 = makeGame({ url: 'url1', headers: { Date: '2025.01.01' } });
+            const pos1 = new Map<string, PositionData>();
+            pos1.set(START_FEN, makePosition(['url1'], [{ san: 'e4', games: ['url1'] }]));
+            const games1 = new Map<string, GameData>();
+            games1.set('url1', game1);
+            const tree1 = new OpeningTree(pos1, games1);
+
+            const emptyTree = new OpeningTree();
+
+            tree1.merge(emptyTree);
+
+            expect(tree1.getGameCount()).toBe(1);
+            expect(tree1.getGame('url1')).toBeDefined();
+
+            const filters = makeFilters();
+            const position = tree1.getPosition(START_FEN, filters);
+            expect(position).toBeDefined();
+            expect(position!.white).toBe(1);
+            expect(position!.moves).toHaveLength(1);
+
+            // Also test merging into empty tree
+            const emptyTree2 = new OpeningTree();
+            emptyTree2.merge(tree1);
+
+            expect(emptyTree2.getGameCount()).toBe(1);
+            const position2 = emptyTree2.getPosition(START_FEN, filters);
+            expect(position2).toBeDefined();
+            expect(position2!.white).toBe(1);
+        });
+    });
+
     describe('matchesFilter (via getGames)', () => {
         function treeWithGame(game: GameData): OpeningTree {
             const positionData = new Map<string, PositionData>();

@@ -383,6 +383,30 @@ export class OpeningTree {
     }
 
     /**
+     * Merges another OpeningTree into this one additively. Positions keyed by FEN
+     * have their W/B/D counts summed, game sets unioned, and move lists merged
+     * (same SAN = sum counts + union games, new SAN = append). Game data maps are
+     * unioned (URL-keyed). Cached/filtered results are cleared.
+     * @param other The OpeningTree to merge into this one.
+     */
+    merge(other: OpeningTree) {
+        for (const [url, game] of other.gameData) {
+            if (!this.gameData.has(url)) {
+                this.gameData.set(url, game);
+            }
+        }
+
+        for (const [fen, position] of other.positionData) {
+            this.mergePosition(fen, position);
+        }
+
+        this.gamesSortedByDate = undefined;
+        this.filters = undefined;
+        this.mostRecentGames = undefined;
+        this.invalidateCaches();
+    }
+
+    /**
      * Merges the given position data with the existing position data for the FEN.
      * @param fen The un-normalized FEN of the position.
      * @param position The data to merge into the existing data.
