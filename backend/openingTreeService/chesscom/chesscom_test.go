@@ -151,11 +151,15 @@ func TestPlayerColor(t *testing.T) {
 	}
 
 	// Game 0: TestUser is white (case-insensitive match).
-	if color := result[0].PlayerColor("testuser"); color != "white" {
+	if color, err := result[0].PlayerColor("testuser"); err != nil {
+		t.Errorf("PlayerColor error: %v", err)
+	} else if color != "white" {
 		t.Errorf("expected white, got %s", color)
 	}
 	// Game 1: TestUser is black.
-	if color := result[1].PlayerColor("testuser"); color != "black" {
+	if color, err := result[1].PlayerColor("testuser"); err != nil {
+		t.Errorf("PlayerColor error: %v", err)
+	} else if color != "black" {
 		t.Errorf("expected black, got %s", color)
 	}
 }

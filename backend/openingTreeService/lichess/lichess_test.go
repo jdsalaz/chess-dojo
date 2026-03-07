@@ -239,7 +239,7 @@ func TestGames_ContextCancellation(t *testing.T) {
 	var count int
 	var lastErr error
 	for _, err := range client.Games(ctx, FetchParams{
-		Username: "slowuser",
+		Username: "a",
 	}) {
 		if err != nil {
 			lastErr = err
@@ -318,7 +318,7 @@ func TestGames_BlankLines(t *testing.T) {
 	client := newTestClient(srv)
 	var count int
 	for _, err := range client.Games(context.Background(), FetchParams{
-		Username: "user",
+		Username: "a",
 	}) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

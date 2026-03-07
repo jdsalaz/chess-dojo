@@ -17,7 +17,10 @@ func TestToGame(t *testing.T) {
 		Black:     Player{Username: "Bob", Rating: 1450, Result: PlayerResultCheckmated},
 	}
 
-	common := ToGame(g, "alice")
+	common, err := ToGame(g, "alice")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 
 	if common.Source != game.SourceChessCom {
 		t.Errorf("Source = %q, want %q", common.Source, game.SourceChessCom)
@@ -61,7 +64,10 @@ func TestToGame_DailyMapsToCorrespondence(t *testing.T) {
 		Black:     Player{Username: "B", Result: PlayerResultResigned},
 	}
 
-	common := ToGame(g, "A")
+	common, err := ToGame(g, "A")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.TimeClass != game.TimeClassCorrespondence {
 		t.Errorf("TimeClass = %q, want %q", common.TimeClass, game.TimeClassCorrespondence)
 	}
@@ -73,7 +79,10 @@ func TestToGame_BlackWin(t *testing.T) {
 		Black: Player{Username: "B", Result: PlayerResultWin},
 	}
 
-	common := ToGame(g, "B")
+	common, err := ToGame(g, "B")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.Result != game.ResultBlack {
 		t.Errorf("Result = %q, want %q", common.Result, game.ResultBlack)
 	}
@@ -88,7 +97,10 @@ func TestToGame_Draw(t *testing.T) {
 		Black: Player{Username: "B", Result: PlayerResultStalemate},
 	}
 
-	common := ToGame(g, "A")
+	common, err := ToGame(g, "A")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.Result != game.ResultDraw {
 		t.Errorf("Result = %q, want %q", common.Result, game.ResultDraw)
 	}

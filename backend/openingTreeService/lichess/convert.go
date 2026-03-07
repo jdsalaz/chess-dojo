@@ -24,7 +24,7 @@ func toCommonTimeClass(tc TimeClass) game.TimeClass {
 
 // ToGame converts a Lichess Game to the common game model.
 // The username parameter identifies which player's perspective to use for PlayerColor.
-func ToGame(g *Game, username string) game.Game {
+func ToGame(g *Game, username string) (game.Game, error) {
 	var result game.Result
 	switch g.Result() {
 	case "1-0":
@@ -47,9 +47,14 @@ func ToGame(g *Game, username string) game.Game {
 	whiteRating = g.Players.White.Rating
 	blackRating = g.Players.Black.Rating
 
+	color, err := g.PlayerColor(username)
+	if err != nil {
+		return game.Game{}, err
+	}
+
 	return game.Game{
 		PGN:          g.PGN,
-		PlayerColor:  g.PlayerColor(username),
+		PlayerColor:  color,
 		WhiteUsername: whiteUsername,
 		BlackUsername: blackUsername,
 		WhiteRating:  whiteRating,
@@ -59,5 +64,5 @@ func ToGame(g *Game, username string) game.Game {
 		Rated:        g.Rated,
 		URL:          g.URL(),
 		Source:       game.SourceLichess,
-	}
+	}, nil
 }

@@ -99,13 +99,17 @@ func (g *Game) Result() string {
 }
 
 // PlayerColor returns "white" or "black" depending on which side the given
-// username (case-insensitive) is playing.
-func (g *Game) PlayerColor(username string) string {
+// username (case-insensitive) is playing. It returns an error if the
+// username matches neither player.
+func (g *Game) PlayerColor(username string) (string, error) {
 	lower := strings.ToLower(username)
 	if g.Players.White.User != nil && strings.ToLower(g.Players.White.User.ID) == lower {
-		return "white"
+		return "white", nil
 	}
-	return "black"
+	if g.Players.Black.User != nil && strings.ToLower(g.Players.Black.User.ID) == lower {
+		return "black", nil
+	}
+	return "", fmt.Errorf("lichess: username %q matches neither white nor black player", username)
 }
 
 // IsStandard returns true if the game uses the standard chess variant.
@@ -188,7 +192,12 @@ func (c *Client) Games(ctx context.Context, params FetchParams) iter.Seq2[game.G
 				continue
 			}
 
-			if !yield(ToGame(&lg, params.Username), nil) {
+			cg, err := ToGame(&lg, params.Username)
+			if err != nil {
+				yield(game.Game{}, err)
+				return
+			}
+			if !yield(cg, nil) {
 				return
 			}
 

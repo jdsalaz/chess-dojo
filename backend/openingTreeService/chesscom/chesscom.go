@@ -100,12 +100,16 @@ func (g *Game) Result() GameResult {
 }
 
 // PlayerColor returns "white" or "black" based on whether the given
-// username (case-insensitive) played as white or black.
-func (g *Game) PlayerColor(username string) string {
+// username (case-insensitive) played as white or black. It returns an
+// error if the username matches neither player.
+func (g *Game) PlayerColor(username string) (string, error) {
 	if strings.EqualFold(g.White.Username, username) {
-		return "white"
+		return "white", nil
 	}
-	return "black"
+	if strings.EqualFold(g.Black.Username, username) {
+		return "black", nil
+	}
+	return "", fmt.Errorf("chesscom: username %q matches neither white (%q) nor black (%q)", username, g.White.Username, g.Black.Username)
 }
 
 // IsStandard returns true if the game uses standard chess rules.
@@ -222,7 +226,12 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 				if standardOnly && !games[j].IsStandard() {
 					continue
 				}
-				if !yield(ToGame(&games[j], username), nil) {
+				cg, err := ToGame(&games[j], username)
+				if err != nil {
+					yield(game.Game{}, err)
+					return
+				}
+				if !yield(cg, nil) {
 					return
 				}
 			}

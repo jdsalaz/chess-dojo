@@ -19,7 +19,10 @@ func TestToGame(t *testing.T) {
 		PGN:    "1. e4 e5 1-0",
 	}
 
-	common := ToGame(g, "alice")
+	common, err := ToGame(g, "alice")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 
 	if common.Source != game.SourceLichess {
 		t.Errorf("Source = %q, want %q", common.Source, game.SourceLichess)
@@ -67,7 +70,10 @@ func TestToGame_BlackWin(t *testing.T) {
 		Winner: "black",
 	}
 
-	common := ToGame(g, "b")
+	common, err := ToGame(g, "b")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.Result != game.ResultBlack {
 		t.Errorf("Result = %q, want %q", common.Result, game.ResultBlack)
 	}
@@ -86,7 +92,10 @@ func TestToGame_Draw(t *testing.T) {
 		},
 	}
 
-	common := ToGame(g, "a")
+	common, err := ToGame(g, "a")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.Result != game.ResultDraw {
 		t.Errorf("Result = %q, want %q", common.Result, game.ResultDraw)
 	}
@@ -106,7 +115,10 @@ func TestToGame_UltraBulletMapsToBullet(t *testing.T) {
 		Winner: "white",
 	}
 
-	common := ToGame(g, "a")
+	common, err := ToGame(g, "a")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.TimeClass != game.TimeClassBullet {
 		t.Errorf("TimeClass = %q, want %q", common.TimeClass, game.TimeClassBullet)
 	}
@@ -123,7 +135,10 @@ func TestToGame_NilUser(t *testing.T) {
 		Winner: "white",
 	}
 
-	common := ToGame(g, "human")
+	common, err := ToGame(g, "human")
+	if err != nil {
+		t.Fatalf("ToGame error: %v", err)
+	}
 	if common.WhiteUsername != "Human" {
 		t.Errorf("WhiteUsername = %q, want Human", common.WhiteUsername)
 	}

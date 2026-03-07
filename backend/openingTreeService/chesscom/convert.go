@@ -22,7 +22,7 @@ func toCommonTimeClass(tc TimeClass) game.TimeClass {
 
 // ToGame converts a Chess.com Game to the common game model.
 // The username parameter identifies which player's perspective to use for PlayerColor.
-func ToGame(g *Game, username string) game.Game {
+func ToGame(g *Game, username string) (game.Game, error) {
 	var result game.Result
 	switch g.Result() {
 	case ResultWhite:
@@ -33,9 +33,14 @@ func ToGame(g *Game, username string) game.Game {
 		result = game.ResultDraw
 	}
 
+	color, err := g.PlayerColor(username)
+	if err != nil {
+		return game.Game{}, err
+	}
+
 	return game.Game{
 		PGN:          g.PGN,
-		PlayerColor:  g.PlayerColor(username),
+		PlayerColor:  color,
 		WhiteUsername: g.White.Username,
 		BlackUsername: g.Black.Username,
 		WhiteRating:  g.White.Rating,
@@ -45,5 +50,5 @@ func ToGame(g *Game, username string) game.Game {
 		Rated:        g.Rated,
 		URL:          g.URL,
 		Source:       game.SourceChessCom,
-	}
+	}, nil
 }
