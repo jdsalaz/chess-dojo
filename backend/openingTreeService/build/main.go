@@ -349,7 +349,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 
 		if r.err != nil {
-			key := fmt.Sprintf("%s:%s", r.src.Type, r.src.Username)
+			key := sourceKey(r.src)
 			if _, exists := sourceErrors[key]; !exists {
 				log.Errorf("Error fetching game from %s for %s: %v", r.src.Type, r.src.Username, r.err)
 				sourceErrors[key] = SourceError{
