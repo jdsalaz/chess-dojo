@@ -439,7 +439,7 @@ func mustReadFileB(b *testing.B, path string) []byte {
 	return data
 }
 
-func BenchmarkGames_12Archives_NoLatency(b *testing.B) {
+func BenchmarkGames_12Archives(b *testing.B) {
 	benchGames(b, 12)
 }
 
