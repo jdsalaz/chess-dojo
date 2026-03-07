@@ -108,6 +108,11 @@ func (g *Game) PlayerColor(username string) string {
 	return "black"
 }
 
+// IsStandard returns true if the game uses the standard chess variant.
+func (g *Game) IsStandard() bool {
+	return g.Variant == "standard"
+}
+
 // URL returns the full Lichess URL for this game.
 func (g *Game) URL() string {
 	return baseURL + "/" + g.ID
@@ -177,6 +182,10 @@ func (c *Client) Games(ctx context.Context, params FetchParams) iter.Seq2[game.G
 			if err := json.Unmarshal([]byte(line), &lg); err != nil {
 				yield(game.Game{}, fmt.Errorf("lichess: parsing game JSON: %w", err))
 				return
+			}
+
+			if !lg.IsStandard() {
+				continue
 			}
 
 			if !yield(ToGame(&lg, params.Username), nil) {

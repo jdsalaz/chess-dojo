@@ -84,6 +84,57 @@ func TestGames_AllGames(t *testing.T) {
 	}
 }
 
+func TestGames_SkipsNonStandardVariants(t *testing.T) {
+	fixture := loadFixture(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write(fixture)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(srv)
+	var ids []string
+	for g, err := range client.Games(context.Background(), FetchParams{
+		Username: "testplayer",
+	}) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		ids = append(ids, g.URL)
+	}
+
+	// Fixture has 7 games: 5 standard + chess960 + crazyhouse.
+	// Only the 5 standard games should be yielded.
+	if got := len(ids); got != 5 {
+		t.Fatalf("got %d games, want 5 (non-standard variants should be filtered)", got)
+	}
+	for _, url := range ids {
+		if url == "https://lichess.org/game006" || url == "https://lichess.org/game007" {
+			t.Errorf("non-standard game %s was not filtered", url)
+		}
+	}
+}
+
+func TestIsStandard(t *testing.T) {
+	tests := []struct {
+		variant string
+		want    bool
+	}{
+		{"standard", true},
+		{"chess960", false},
+		{"crazyhouse", false},
+		{"antichess", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		g := Game{Variant: tt.variant}
+		if got := g.IsStandard(); got != tt.want {
+			t.Errorf("Game{Variant:%q}.IsStandard() = %v, want %v", tt.variant, got, tt.want)
+		}
+	}
+}
+
 func TestGames_WithMax(t *testing.T) {
 	fixture := loadFixture(t)
 
