@@ -132,16 +132,16 @@ func (t *OpeningTree) MergePosition(fen string, pos *PositionData) {
 		existing.Games[url] = struct{}{}
 	}
 
+	moveIndex := make(map[string]*MoveData, len(existing.Moves))
+	for _, em := range existing.Moves {
+		moveIndex[em.SAN] = em
+	}
+
 	for _, move := range pos.Moves {
-		var found *MoveData
-		for _, em := range existing.Moves {
-			if em.SAN == move.SAN {
-				found = em
-				break
-			}
-		}
+		found := moveIndex[move.SAN]
 		if found == nil {
 			existing.Moves = append(existing.Moves, move)
+			moveIndex[move.SAN] = move
 		} else {
 			found.White += move.White
 			found.Black += move.Black
