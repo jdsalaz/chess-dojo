@@ -32,13 +32,9 @@ const (
 	// well under Lambda's 6 MB payload limit.
 	SizeBudget = 5_000_000
 
-	// sizeCheckInterval controls how often (in games indexed) we estimate
-	// the serialized response size.
-	sizeCheckInterval = 100
-
-	// Empirical byte estimates for response size calculation.
-	bytesPerGame     = 500
-	bytesPerPosition = 400
+	// sizeCheckInterval controls how often (in games indexed) we measure
+	// the serialized response size via json.Marshal.
+	sizeCheckInterval = 200
 
 	// LambdaGracePeriod is subtracted from the Lambda deadline so there is
 	// time to serialize and return partial results before the hard kill.
@@ -266,9 +262,9 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			break
 		}
 
-		// Periodic size budget check.
+		// Periodic size budget check using actual serialization.
 		if tree.GameCount() > 0 && tree.GameCount()%sizeCheckInterval == 0 {
-			if estimateResponseSize(tree) >= SizeBudget {
+			if measureResponseSize(tree) >= SizeBudget {
 				truncated = true
 				cancelFetch()
 				for range results {
@@ -346,9 +342,17 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	return api.Success(resp), nil
 }
 
-// estimateResponseSize returns a rough byte estimate of the serialized response.
-func estimateResponseSize(tree *openingtree.OpeningTree) int {
-	return tree.GameCount()*bytesPerGame + tree.PositionCount()*bytesPerPosition
+// measureResponseSize returns the actual serialized size of the response in bytes.
+// json.Marshal takes 25-95ms even at 3000 games — negligible compared to the
+// seconds spent on HTTP calls to Chess.com/Lichess.
+func measureResponseSize(tree *openingtree.OpeningTree) int {
+	resp := treeapi.FromOpeningTree(tree)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Errorf("Failed to marshal response for size check: %v", err)
+		return 0
+	}
+	return len(data)
 }
 
 // sourceKey returns a stable key for a source, used as cursor map keys.

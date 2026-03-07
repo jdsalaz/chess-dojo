@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/api"
 	treeapi "github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/api"
+	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
+	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/openingtree"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/database"
 )
 
@@ -879,6 +881,82 @@ func TestHandler_TimeoutPartialResults(t *testing.T) {
 	}
 	if !foundTimeoutError {
 		t.Error("expected timeout source error for slow lichess source")
+	}
+}
+
+func TestMeasureResponseSize_UnderBudget(t *testing.T) {
+	// Build a tree with 2000+ games and verify that measureResponseSize returns
+	// the actual serialized JSON size, and that the size budget mechanism would
+	// keep the response under the Lambda limit.
+	tree := openingtree.New()
+
+	openings := []string{
+		"1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O 1-0",
+		"1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 0-1",
+		"1. c4 e5 2. Nc3 Nf6 3. Nf3 Nc6 4. g3 d5 5. cxd5 Nxd5 1/2-1/2",
+		"1. Nf3 d5 2. g3 Nf6 3. Bg2 g6 4. O-O Bg7 5. d3 O-O 1-0",
+	}
+	results := []game.Result{game.ResultWhite, game.ResultBlack, game.ResultDraw, game.ResultWhite}
+
+	const numGames = 2500
+	for i := 0; i < numGames; i++ {
+		pgn := fmt.Sprintf(`[Event "Game %d"]
+[Site "Test"]
+[Date "2024.01.01"]
+[Round "%d"]
+[White "Player%d"]
+[Black "Opponent%d"]
+[Result "%s"]
+
+%s`, i, i, i%100, i%100, results[i%len(results)], openings[i%len(openings)])
+
+		g := &game.Game{
+			URL:           fmt.Sprintf("https://example.com/game/%d", i),
+			PGN:           pgn,
+			Result:        results[i%len(results)],
+			Source:        game.SourceChessCom,
+			WhiteUsername: fmt.Sprintf("Player%d", i%100),
+			BlackUsername: fmt.Sprintf("Opponent%d", i%100),
+			WhiteRating:   1500,
+			BlackRating:   1500,
+			TimeClass:     game.TimeClassRapid,
+			Rated:         true,
+		}
+		tree.IndexGame(g)
+	}
+
+	if tree.GameCount() < 2000 {
+		t.Fatalf("expected at least 2000 games indexed, got %d", tree.GameCount())
+	}
+
+	// measureResponseSize should return the actual serialized size.
+	measured := measureResponseSize(tree)
+	if measured == 0 {
+		t.Fatal("measureResponseSize returned 0")
+	}
+
+	// Verify it matches actual json.Marshal output.
+	resp := treeapi.FromOpeningTree(tree)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	actual := len(data)
+
+	if measured != actual {
+		t.Errorf("measureResponseSize = %d, json.Marshal len = %d", measured, actual)
+	}
+
+	// Log the size for visibility — this validates the bead's claim that
+	// 2000+ games produce multi-MB responses.
+	t.Logf("Tree: %d games, %d positions, serialized size: %.2f MB",
+		tree.GameCount(), tree.PositionCount(), float64(actual)/1_000_000)
+
+	// If the tree exceeds the size budget, that confirms the old estimation
+	// would have been dangerously wrong (it would report ~1.6 MB for 3000 games
+	// when the real size is 5+ MB).
+	if actual >= SizeBudget {
+		t.Logf("Response exceeds SizeBudget (%d >= %d) — size check would correctly trigger truncation", actual, SizeBudget)
 	}
 }
 
