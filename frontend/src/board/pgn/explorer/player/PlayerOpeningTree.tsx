@@ -50,7 +50,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
 
     const onLoad = useCallback(async () => {
         if (abortControllerRef.current) {
-            return;
+            abortControllerRef.current.abort();
         }
 
         const newSources: PlayerSource[] = [];
@@ -98,8 +98,10 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
             logger.error?.('Failed to build player opening tree:', err);
             setError('Failed to load games. Please try again.');
         } finally {
-            abortControllerRef.current = undefined;
-            setIsLoading(false);
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = undefined;
+                setIsLoading(false);
+            }
         }
     }, [sources, setSources]);
 
