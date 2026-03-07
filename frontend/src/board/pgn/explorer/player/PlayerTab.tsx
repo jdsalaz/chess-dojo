@@ -30,6 +30,7 @@ export function PlayerTab({ fen }: { fen: string }) {
         sources,
         setSources,
         isLoading,
+        gameCount,
         onLoad: parentOnLoad,
         onCancel,
         onClear,
@@ -89,7 +90,9 @@ export function PlayerTab({ fen }: { fen: string }) {
 
             {isLoading && (
                 <Stack direction='row' spacing={1} my={1} alignItems='center'>
-                    <Typography>Loading games...</Typography>
+                    <Typography>
+                        {gameCount} game{gameCount === 1 ? '' : 's'} loaded...
+                    </Typography>
                     <CircularProgress size={20} />
                     <Button size='small' variant='outlined' onClick={onCancel}>
                         Cancel
