@@ -279,6 +279,49 @@ func TestHandler_EmptySourceUsername(t *testing.T) {
 	}
 }
 
+func TestHandler_InvalidSourceUsername(t *testing.T) {
+	oldRepo := repository
+	repository = subscribedUser("testuser")
+	defer func() { repository = oldRepo }()
+
+	tests := []struct {
+		name     string
+		username string
+	}{
+		{"slash", "user/name"},
+		{"space", "user name"},
+		{"special chars", "user@name!"},
+		{"dot", "user.name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"sources":[{"type":"chesscom","username":"%s"}]}`, tt.username)
+			event := makeEvent("testuser", body)
+			resp, err := handler(context.Background(), event)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.StatusCode != 400 {
+				t.Errorf("expected 400, got %d", resp.StatusCode)
+			}
+			if !strings.Contains(resp.Body, "invalid characters") {
+				t.Errorf("expected error about invalid characters, got: %s", resp.Body)
+			}
+		})
+	}
+}
+
+func TestHandler_ValidSourceUsername(t *testing.T) {
+	// Verify the regex directly — valid usernames must pass.
+	validNames := []string{"hikaru", "DrNykterstein", "user_name", "user-name", "Player123", "A", "a1b2c3"}
+	for _, name := range validNames {
+		if !validUsername.MatchString(name) {
+			t.Errorf("valid username %q was rejected by validUsername regex", name)
+		}
+	}
+}
+
 func TestHandler_ChessComOnly(t *testing.T) {
 	chesscomSrv := newChesscomServer(t, "testuser")
 	defer chesscomSrv.Close()
