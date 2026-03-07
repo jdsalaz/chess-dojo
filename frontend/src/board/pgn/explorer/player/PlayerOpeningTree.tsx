@@ -19,6 +19,7 @@ export interface PlayerOpeningTreeContextType {
     sources: PlayerSource[];
     setSources: Dispatch<SetStateAction<PlayerSource[]>>;
     isLoading: boolean;
+    gameCount: number;
     onLoad: () => Promise<void>;
     onCancel: () => void;
     onClear: () => void;
@@ -42,6 +43,7 @@ export function usePlayerOpeningTree(): PlayerOpeningTreeContextType {
 export function PlayerOpeningTreeProvider({ children }: { children: ReactNode }) {
     const [sources, setSources] = useState([DEFAULT_PLAYER_SOURCE]);
     const [isLoading, setIsLoading] = useState(false);
+    const [gameCount, setGameCount] = useState(0);
     const [error, setError] = useState<string | undefined>(undefined);
     const [sourceErrors, setSourceErrors] = useState<BackendSourceError[]>([]);
     const abortControllerRef = useRef<AbortController>(undefined);
@@ -78,19 +80,36 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
         setIsLoading(true);
         setError(undefined);
         setSourceErrors([]);
+        setGameCount(0);
         try {
             const apiSources = newSources.map((s) => ({
                 type: s.type,
                 username: s.username.trim().toLowerCase(),
             }));
-            const response = await buildPlayerOpeningTree(apiSources, controller.signal);
-            if (controller.signal.aborted) {
-                return;
-            }
-            const tree = OpeningTree.fromBackendResponse(response.data);
-            logger.debug?.('API returned tree: ', tree);
-            openingTree.current = tree;
-            setSourceErrors(response.data.sourceErrors ?? []);
+
+            const accumulatedTree = new OpeningTree();
+            let cursor: string | undefined;
+
+            do {
+                const response = await buildPlayerOpeningTree(
+                    apiSources,
+                    controller.signal,
+                    cursor,
+                );
+                if (controller.signal.aborted) {
+                    return;
+                }
+
+                const pageTree = OpeningTree.fromBackendResponse(response.data);
+                accumulatedTree.merge(pageTree);
+                logger.debug?.('Merged page, total games:', accumulatedTree.getGameCount());
+                setGameCount(accumulatedTree.getGameCount());
+                setSourceErrors(response.data.sourceErrors ?? []);
+
+                cursor = response.data.truncated ? response.data.cursor : undefined;
+            } while (cursor);
+
+            openingTree.current = accumulatedTree;
         } catch (err) {
             if (controller.signal.aborted) {
                 return;
@@ -123,6 +142,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
                 sources,
                 setSources,
                 isLoading,
+                gameCount,
                 onLoad,
                 onCancel,
                 onClear,
