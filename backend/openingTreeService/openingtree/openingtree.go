@@ -189,23 +189,12 @@ func (t *OpeningTree) IndexGame(gm *game.Game) (bool, error) {
 	}
 	t.SetGame(ig)
 
-	// Determine result key.
-	var resultKey string
-	switch gm.Result {
-	case game.ResultWhite:
-		resultKey = "white"
-	case game.ResultBlack:
-		resultKey = "black"
-	default:
-		resultKey = "draws"
-	}
-
 	// Pre-compute result counts.
 	var w, b, d int
-	switch resultKey {
-	case "white":
+	switch gm.Result {
+	case game.ResultWhite:
 		w = 1
-	case "black":
+	case game.ResultBlack:
 		b = 1
 	default:
 		d = 1

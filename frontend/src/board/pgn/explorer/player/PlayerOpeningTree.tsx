@@ -93,9 +93,6 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
             const since = filters.dateRange[0]?.toUTC().toISO() ?? undefined;
             const until = filters.dateRange[1]?.endOf('day').toUTC().toISO() ?? undefined;
 
-            const since = filters.dateRange[0]?.toUTC().toISO() ?? undefined;
-            const until = filters.dateRange[1]?.endOf('day').toUTC().toISO() ?? undefined;
-
             do {
                 const response = await buildPlayerOpeningTree(
                     apiSources,
