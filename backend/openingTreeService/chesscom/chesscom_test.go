@@ -367,7 +367,7 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return t.base.RoundTrip(req)
 }
 
-func benchGames(b *testing.B, latency time.Duration, numArchives int) {
+func benchGames(b *testing.B, numArchives int) {
 	b.Helper()
 	gamesFixture := mustReadFileB(b, "testdata/games.json")
 
@@ -381,9 +381,6 @@ func benchGames(b *testing.B, latency time.Duration, numArchives int) {
 	archiveList += "]"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if latency > 0 {
-			time.Sleep(latency)
-		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/pub/player/testuser/games/archives" {
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"archives":%s}`, archiveList)))
@@ -421,14 +418,7 @@ func mustReadFileB(b *testing.B, path string) []byte {
 	return data
 }
 
-func BenchmarkGames_12Archives_50msLatency(b *testing.B) {
-	if os.Getenv("BENCH_LATENCY") == "" {
-		b.Skip("skipping latency benchmark; set BENCH_LATENCY=1 to run")
-	}
-	benchGames(b, 50*time.Millisecond, 12)
-}
-
 func BenchmarkGames_12Archives_NoLatency(b *testing.B) {
-	benchGames(b, 0, 12)
+	benchGames(b, 12)
 }
 
