@@ -138,11 +138,14 @@ export interface BackendIndexedGame {
  * @param sources The player sources to build the tree from.
  * @returns The serialized opening tree.
  */
-export function buildPlayerOpeningTree(sources: BuildPlayerOpeningTreeRequest['sources']) {
+export function buildPlayerOpeningTree(
+    sources: BuildPlayerOpeningTreeRequest['sources'],
+    signal?: AbortSignal,
+) {
     return axiosService.post<BuildPlayerOpeningTreeResponse>(
         `/explorer/player-opening-tree`,
         { sources },
-        { functionName: 'buildPlayerOpeningTree' },
+        { functionName: 'buildPlayerOpeningTree', signal },
     );
 }
 

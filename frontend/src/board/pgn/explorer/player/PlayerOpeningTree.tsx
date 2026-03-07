@@ -79,7 +79,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
                 type: s.type,
                 username: s.username.trim().toLowerCase(),
             }));
-            const response = await buildPlayerOpeningTree(apiSources);
+            const response = await buildPlayerOpeningTree(apiSources, controller.signal);
             if (controller.signal.aborted) {
                 return;
             }
