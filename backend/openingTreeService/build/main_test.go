@@ -807,16 +807,12 @@ func TestHandler_CursorResume(t *testing.T) {
 	}
 }
 
-// newSlowServer serves games after a delay, simulating a slow API.
-func newSlowServer(t *testing.T, delay time.Duration) *httptest.Server {
+// newSlowServer serves games only after its context is cancelled, simulating a slow API.
+func newSlowServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	games := mustReadFile(t, "../lichess/testdata/games.ndjson")
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-time.After(delay):
-		case <-r.Context().Done():
-			return
-		}
+		<-r.Context().Done()
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		_, _ = w.Write(games)
 	}))
@@ -827,7 +823,7 @@ func TestHandler_TimeoutPartialResults(t *testing.T) {
 	chesscomSrv := newChesscomServer(t, "testuser")
 	defer chesscomSrv.Close()
 
-	slowLichessSrv := newSlowServer(t, 5*time.Second)
+	slowLichessSrv := newSlowServer(t)
 	defer slowLichessSrv.Close()
 
 	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), slowLichessSrv.Listener.Addr().String())
