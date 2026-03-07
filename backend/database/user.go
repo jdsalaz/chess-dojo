@@ -932,6 +932,7 @@ type UserUpdater interface {
 type UserProgressUpdater interface {
 	UserUpdater
 	RequirementGetter
+	RequirementLister
 	TimelineEditor
 
 	// UpdateUserProgress sets the given progress entry in the user's progress map.
