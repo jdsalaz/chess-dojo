@@ -191,11 +191,18 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 			since, until := sinceTime, untilTime
 
-			// If a cursor is provided, resume from the last timestamp for this source.
+			// If a cursor is provided, resume from where the previous page
+			// left off. Chess.com streams oldest-first, so we use
+			// LastTimestamp as 'since'. Lichess streams newest-first, so we
+			// use LastUntil as 'until' to fetch older games.
 			if req.Cursor != nil {
 				key := sourceKey(src)
 				if sc, ok := req.Cursor.Sources[key]; ok {
-					since = sc.LastTimestamp
+					if src.Type == game.SourceLichess && !sc.LastUntil.IsZero() {
+						until = sc.LastUntil
+					} else if !sc.LastTimestamp.IsZero() {
+						since = sc.LastTimestamp
+					}
 				}
 			}
 
@@ -269,6 +276,8 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 	// Track the last game EndTime per source for cursor construction.
 	lastTimestamp := make(map[string]time.Time)
+	// Track min EndTime per Lichess source for backwards pagination.
+	minTimestamp := make(map[string]time.Time)
 	// Track total games indexed including any from a previous cursor page.
 	priorGames := 0
 	if req.Cursor != nil {
@@ -358,12 +367,13 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 		// Track per-source last timestamp for cursor.
 		// For Chess.com, timestamps are set at archive boundaries (above).
-		// For Lichess, track the max EndTime from individual games.
+		// For Lichess (newest-first), track the min EndTime so that on
+		// resume we can set "until" to fetch games older than this point.
 		if r.src.Type == game.SourceLichess {
 			key := sourceKey(r.src)
 			if !r.game.EndTime.IsZero() {
-				if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
-					lastTimestamp[key] = r.game.EndTime
+				if prev, ok := minTimestamp[key]; !ok || r.game.EndTime.Before(prev) {
+					minTimestamp[key] = r.game.EndTime
 				}
 			}
 		}
@@ -406,17 +416,26 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	// Build cursor when response was truncated.
 	if truncated {
 		treeResp.Truncated = true
+		cursorSize := len(lastTimestamp) + len(minTimestamp)
 		cursor := &treeapi.Cursor{
-			Sources:    make(map[string]treeapi.SourceCursor, len(lastTimestamp)),
+			Sources:    make(map[string]treeapi.SourceCursor, cursorSize),
 			TotalGames: priorGames + tree.GameCount(),
 		}
+		// Chess.com sources: use lastTimestamp (archive boundary) as resume point.
 		for key, ts := range lastTimestamp {
 			cursor.Sources[key] = treeapi.SourceCursor{
 				LastTimestamp: ts,
 				Completed:    completedSources[key],
 			}
 		}
-		// Include completed sources that have no lastTimestamp entry
+		// Lichess sources: use minTimestamp as LastUntil for backwards pagination.
+		for key, ts := range minTimestamp {
+			cursor.Sources[key] = treeapi.SourceCursor{
+				LastUntil: ts,
+				Completed: completedSources[key],
+			}
+		}
+		// Include completed sources that have no timestamp entry
 		// (e.g. source completed with zero games in this page).
 		for key := range completedSources {
 			if _, exists := cursor.Sources[key]; !exists {

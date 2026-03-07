@@ -741,7 +741,9 @@ func TestHandler_SizeBudgetTruncation(t *testing.T) {
 }
 
 func TestHandler_CursorResume(t *testing.T) {
-	// Verify that providing a cursor adjusts the since parameter for fetchers.
+	// Verify that providing a Lichess cursor with lastUntil adjusts the
+	// "until" parameter (not "since") for the Lichess fetcher. Lichess
+	// returns games newest-first, so pagination uses until=minTimestamp.
 	var lichessRequestURL string
 	var mu sync.Mutex
 
@@ -767,12 +769,12 @@ func TestHandler_CursorResume(t *testing.T) {
 	repository = subscribedUser("player1")
 	defer func() { repository = oldRepo }()
 
-	// Send a request with a cursor that has a lichess source timestamp.
+	// Send a request with a cursor that has a lichess lastUntil timestamp.
 	cursorTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	body := fmt.Sprintf(`{
 		"sources":[{"type":"lichess","username":"testplayer"}],
 		"cursor":{
-			"sources":{"lichess:testplayer":{"lastTimestamp":"%s"}},
+			"sources":{"lichess:testplayer":{"lastUntil":"%s"}},
 			"totalGames":50
 		}
 	}`, cursorTime.Format(time.RFC3339))
@@ -786,14 +788,19 @@ func TestHandler_CursorResume(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
 	}
 
-	// Verify lichess request used the cursor timestamp as since.
+	// Verify lichess request used the cursor timestamp as until (not since).
 	mu.Lock()
 	url := lichessRequestURL
 	mu.Unlock()
 
-	expectedSince := fmt.Sprintf("since=%d", cursorTime.UnixMilli())
-	if !strings.Contains(url, expectedSince) {
-		t.Errorf("Lichess request missing cursor-derived since param.\n  want substring: %s\n  got URL: %s", expectedSince, url)
+	expectedUntil := fmt.Sprintf("until=%d", cursorTime.UnixMilli())
+	if !strings.Contains(url, expectedUntil) {
+		t.Errorf("Lichess request missing cursor-derived until param.\n  want substring: %s\n  got URL: %s", expectedUntil, url)
+	}
+	// Ensure "since" is NOT set from the cursor (it should be absent or from the request's date filter).
+	unexpectedSince := fmt.Sprintf("since=%d", cursorTime.UnixMilli())
+	if strings.Contains(url, unexpectedSince) {
+		t.Errorf("Lichess request should NOT have cursor time as since param.\n  unwanted: %s\n  got URL: %s", unexpectedSince, url)
 	}
 
 	// Verify totalGames accumulates from cursor.
