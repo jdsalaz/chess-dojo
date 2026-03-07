@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,7 +252,7 @@ func TestRateLimitExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for rate limited request")
 	}
-	if got := err.Error(); !contains(got, "429") {
+	if got := err.Error(); !strings.Contains(got, "429") {
 		t.Errorf("expected rate limit error, got: %s", got)
 	}
 }
@@ -267,7 +268,7 @@ func TestNotFoundHandling(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 404 response")
 	}
-	if got := err.Error(); !contains(got, "404") {
+	if got := err.Error(); !strings.Contains(got, "404") {
 		t.Errorf("expected 404 error, got: %s", got)
 	}
 }
@@ -303,10 +304,10 @@ func TestPGNExtracted(t *testing.T) {
 	}
 
 	// Verify PGN is present and contains expected header.
-	if !contains(result[0].PGN, "[Event \"Live Chess\"]") {
+	if !strings.Contains(result[0].PGN, "[Event \"Live Chess\"]") {
 		t.Errorf("expected PGN to contain Event header, got: %s", result[0].PGN[:80])
 	}
-	if !contains(result[0].PGN, "1. e4 e5") {
+	if !strings.Contains(result[0].PGN, "1. e4 e5") {
 		t.Errorf("expected PGN to contain moves, got: %s", result[0].PGN)
 	}
 }
@@ -428,15 +429,3 @@ func BenchmarkGames_12Archives_NoLatency(b *testing.B) {
 	benchGames(b, 0, 12)
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
