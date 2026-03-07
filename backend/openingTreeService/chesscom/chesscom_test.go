@@ -40,6 +40,27 @@ func TestFetchArchives(t *testing.T) {
 	body.Close()
 }
 
+func TestDoGetSetsUserAgent(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	client := NewClientWithHTTP(srv.Client())
+	body, err := client.doGet(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("doGet failed: %v", err)
+	}
+	body.Close()
+
+	if gotUA != defaultUserAgent {
+		t.Errorf("expected User-Agent %q, got %q", defaultUserAgent, gotUA)
+	}
+}
+
 func TestFetchGames(t *testing.T) {
 	games := mustReadFile(t, "testdata/games.json")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

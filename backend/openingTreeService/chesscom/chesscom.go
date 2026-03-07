@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	baseURL        = "https://api.chess.com/pub/player"
-	defaultTimeout = 10 * time.Second
+	baseURL          = "https://api.chess.com/pub/player"
+	defaultTimeout   = 10 * time.Second
+	defaultUserAgent = "chess-dojo-scheduler (https://github.com/jackstenglein/chess-dojo-scheduler)"
 
-	maxRetries = 3
+	maxRetries     = 3
 	baseRetryDelay = 500 * time.Millisecond
 )
 
@@ -239,6 +240,7 @@ func (c *Client) doGet(ctx context.Context, url string) (io.ReadCloser, error) {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", defaultUserAgent)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
