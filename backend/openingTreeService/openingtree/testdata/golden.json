@@ -5866,6 +5866,7 @@
       "rated": false,
       "url": "https://example.com/game/0",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 45,
       "Headers": {
         "Black": "Kieseritzky",
@@ -5889,6 +5890,7 @@
       "rated": false,
       "url": "https://example.com/game/1",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 33,
       "Headers": {
         "Black": "Duke and Count",
@@ -5912,6 +5914,7 @@
       "rated": false,
       "url": "https://example.com/game/2",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 47,
       "Headers": {
         "Black": "Dufresne",
@@ -5935,6 +5938,7 @@
       "rated": false,
       "url": "https://example.com/game/3",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 7,
       "Headers": {
         "Black": "Black",
@@ -5958,6 +5962,7 @@
       "rated": false,
       "url": "https://example.com/game/4",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 33,
       "Headers": {
         "Black": "Black",
@@ -5981,6 +5986,7 @@
       "rated": false,
       "url": "https://example.com/game/5",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 30,
       "Headers": {
         "Black": "Black",
@@ -6004,6 +6010,7 @@
       "rated": false,
       "url": "https://example.com/game/6",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 32,
       "Headers": {
         "Black": "Black",
@@ -6027,6 +6034,7 @@
       "rated": false,
       "url": "https://example.com/game/7",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 36,
       "Headers": {
         "Black": "Black",
@@ -6050,6 +6058,7 @@
       "rated": false,
       "url": "https://example.com/game/8",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 30,
       "Headers": {
         "Black": "Black",
@@ -6073,6 +6082,7 @@
       "rated": false,
       "url": "https://example.com/game/9",
       "source": "",
+      "endTime": "0001-01-01T00:00:00Z",
       "PlyCount": 36,
       "Headers": {
         "Black": "Black",

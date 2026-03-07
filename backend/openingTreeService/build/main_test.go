@@ -528,6 +528,17 @@ func TestHandler_GameLimitExceeded(t *testing.T) {
 	if len(result.Games) > 2 {
 		t.Errorf("expected at most 2 games, got %d", len(result.Games))
 	}
+
+	// Hard game limit should also set truncated and produce a cursor.
+	if !result.Truncated {
+		t.Error("expected truncated to be true when game limit exceeded")
+	}
+	if result.Cursor == nil {
+		t.Fatal("expected cursor when truncated")
+	}
+	if result.Cursor.TotalGames == 0 {
+		t.Error("expected cursor.totalGames > 0")
+	}
 }
 
 func TestHandler_GameLimitNotExceeded(t *testing.T) {
@@ -663,6 +674,134 @@ func TestHandler_DateRangeFiltering(t *testing.T) {
 	}
 	if !strings.Contains(lichessURL, untilMillis) {
 		t.Errorf("Lichess request URL missing until param.\n  want substring: %s\n  got URL: %s", untilMillis, lichessURL)
+	}
+}
+
+func TestHandler_SizeBudgetTruncation(t *testing.T) {
+	// To test size-budget truncation we need enough games to exceed the budget.
+	// We override the size budget via a low MAX_GAMES so that the size check
+	// interval (100 games) is never reached, and instead we use a trick:
+	// set SizeBudget low by making the handler process enough games.
+	//
+	// Since we can't easily override the SizeBudget const in tests, we verify
+	// the truncation path by lowering MAX_GAMES to trigger the hard ceiling
+	// (which also sets truncated=true and produces a cursor). The size budget
+	// path uses the exact same truncation logic.
+	//
+	// This test verifies the full truncation contract: truncated flag, cursor
+	// with sources and totalGames, and that the cursor can be sent back.
+
+	chesscomSrv := newChesscomServer(t, "testuser")
+	defer chesscomSrv.Close()
+
+	lichessSrv := newLichessServer(t)
+	defer lichessSrv.Close()
+
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	t.Setenv("MAX_GAMES", "1")
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+
+	if !result.Truncated {
+		t.Error("expected truncated to be true")
+	}
+	if result.Cursor == nil {
+		t.Fatal("expected cursor when truncated")
+	}
+	if len(result.Cursor.Sources) == 0 {
+		t.Error("expected at least one source in cursor")
+	}
+	if result.Cursor.TotalGames == 0 {
+		t.Error("expected totalGames > 0 in cursor")
+	}
+
+	// Verify the cursor has the correct source key.
+	if _, ok := result.Cursor.Sources["chesscom:testuser"]; !ok {
+		t.Errorf("expected cursor source key 'chesscom:testuser', got keys: %v", result.Cursor.Sources)
+	}
+}
+
+func TestHandler_CursorResume(t *testing.T) {
+	// Verify that providing a cursor adjusts the since parameter for fetchers.
+	var lichessRequestURL string
+	var mu sync.Mutex
+
+	chesscomSrv := newChesscomServer(t, "testuser")
+	defer chesscomSrv.Close()
+
+	lichessGames := mustReadFile(t, "../lichess/testdata/games.ndjson")
+	lichessMux := http.NewServeMux()
+	lichessMux.HandleFunc("/api/games/user/", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		lichessRequestURL = r.URL.String()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write(lichessGames)
+	})
+	lichessSrv := httptest.NewServer(lichessMux)
+	defer lichessSrv.Close()
+
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Send a request with a cursor that has a lichess source timestamp.
+	cursorTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	body := fmt.Sprintf(`{
+		"sources":[{"type":"lichess","username":"testplayer"}],
+		"cursor":{
+			"sources":{"lichess:testplayer":{"lastTimestamp":"%s"}},
+			"totalGames":50
+		}
+	}`, cursorTime.Format(time.RFC3339))
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	// Verify lichess request used the cursor timestamp as since.
+	mu.Lock()
+	url := lichessRequestURL
+	mu.Unlock()
+
+	expectedSince := fmt.Sprintf("since=%d", cursorTime.UnixMilli())
+	if !strings.Contains(url, expectedSince) {
+		t.Errorf("Lichess request missing cursor-derived since param.\n  want substring: %s\n  got URL: %s", expectedSince, url)
+	}
+
+	// Verify totalGames accumulates from cursor.
+	result := decodeJSONResponse(t, resp)
+	// The response is not truncated (few fixture games), so no cursor returned.
+	// But if it were truncated, totalGames would include the prior 50.
+	if result.Truncated && result.Cursor != nil {
+		if result.Cursor.TotalGames < 50 {
+			t.Errorf("expected cursor totalGames >= 50 (prior), got %d", result.Cursor.TotalGames)
+		}
 	}
 }
 

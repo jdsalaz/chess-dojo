@@ -1,6 +1,8 @@
 package chesscom
 
 import (
+	"time"
+
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
 )
 
@@ -50,5 +52,6 @@ func ToGame(g *Game, username string) (game.Game, error) {
 		Rated:        g.Rated,
 		URL:          g.URL,
 		Source:       game.SourceChessCom,
+		EndTime:      time.Unix(g.EndTime, 0),
 	}, nil
 }

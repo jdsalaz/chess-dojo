@@ -4,14 +4,29 @@ package api
 
 import (
 	"sort"
+	"time"
 
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/openingtree"
 )
+
+// SourceCursor holds the resume state for a single source.
+type SourceCursor struct {
+	LastTimestamp time.Time `json:"lastTimestamp"`
+}
+
+// Cursor holds pagination state so the client can request subsequent pages.
+// The Sources map is keyed by "sourceType:username" (e.g. "chesscom:alice").
+type Cursor struct {
+	Sources    map[string]SourceCursor `json:"sources"`
+	TotalGames int                     `json:"totalGames"`
+}
 
 // Response is the top-level JSON envelope returned by the OpeningTree Lambda.
 type Response struct {
 	Positions map[string]*Position `json:"positions"`
 	Games     map[string]*Game     `json:"games"`
+	Truncated bool                 `json:"truncated,omitempty"`
+	Cursor    *Cursor              `json:"cursor,omitempty"`
 }
 
 // Position is the wire format for a single board position's statistics.

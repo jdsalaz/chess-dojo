@@ -24,10 +24,21 @@ import (
 )
 
 const (
-	// DefaultMaxGames is the maximum number of games to index when the
-	// MAX_GAMES environment variable is not set. This prevents Lambda
-	// response payloads from exceeding the 6 MB limit.
-	DefaultMaxGames = 1500
+	// DefaultMaxGames is a hard safety ceiling on games to index.
+	// The size budget (~5 MB) will typically trigger first.
+	DefaultMaxGames = 10000
+
+	// SizeBudget is the approximate response size limit in bytes (~5 MB),
+	// well under Lambda's 6 MB payload limit.
+	SizeBudget = 5_000_000
+
+	// sizeCheckInterval controls how often (in games indexed) we estimate
+	// the serialized response size.
+	sizeCheckInterval = 100
+
+	// Empirical byte estimates for response size calculation.
+	bytesPerGame     = 500
+	bytesPerPosition = 400
 )
 
 var repository database.UserGetter = database.DynamoDB
@@ -42,9 +53,10 @@ type Source struct {
 }
 
 type BuildRequest struct {
-	Sources []Source `json:"sources"`
-	Since   *time.Time `json:"since,omitempty"`
-	Until   *time.Time `json:"until,omitempty"`
+	Sources []Source         `json:"sources"`
+	Since   *time.Time       `json:"since,omitempty"`
+	Until   *time.Time       `json:"until,omitempty"`
+	Cursor  *treeapi.Cursor  `json:"cursor,omitempty"`
 }
 
 // SourceError reports a per-source fetch failure. The frontend can display
@@ -118,7 +130,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	maxGames := getMaxGames()
 
 	// Fan out: fetch games from all sources concurrently.
-	// Use a cancellable context so fetchers stop when the game limit is reached.
+	// Use a cancellable context so fetchers stop when the budget is reached.
 	fetchCtx, cancelFetch := context.WithCancel(ctx)
 	defer cancelFetch()
 
@@ -131,6 +143,14 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			defer wg.Done()
 
 			since, until := timeOrZero(req.Since), timeOrZero(req.Until)
+
+			// If a cursor is provided, resume from the last timestamp for this source.
+			if req.Cursor != nil {
+				key := sourceKey(src)
+				if sc, ok := req.Cursor.Sources[key]; ok {
+					since = sc.LastTimestamp
+				}
+			}
 
 			var games func(func(game.Game, error) bool)
 			switch src.Type {
@@ -154,7 +174,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			for g, err := range games {
 				if err != nil {
 					// Don't report context cancellation as a source error;
-					// it means we hit the game limit.
+					// it means we hit the budget.
 					if fetchCtx.Err() != nil {
 						return
 					}
@@ -179,7 +199,16 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	// Fan in: index games into the tree as they arrive (single-goroutine, no mutex needed).
 	tree := openingtree.New()
 	sourceErrors := make(map[string]SourceError)
+	truncated := false
 	gameLimitExceeded := false
+
+	// Track the last game EndTime per source for cursor construction.
+	lastTimestamp := make(map[string]time.Time)
+	// Track total games indexed including any from a previous cursor page.
+	priorGames := 0
+	if req.Cursor != nil {
+		priorGames = req.Cursor.TotalGames
+	}
 
 	for r := range results {
 		if r.err != nil {
@@ -194,21 +223,43 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			}
 			continue
 		}
+
+		// Hard game ceiling check.
 		if tree.GameCount() >= maxGames {
 			gameLimitExceeded = true
+			truncated = true
 			cancelFetch()
-			// Drain remaining results from the channel.
 			for range results {
 			}
 			break
 		}
+
+		// Periodic size budget check.
+		if tree.GameCount() > 0 && tree.GameCount()%sizeCheckInterval == 0 {
+			if estimateResponseSize(tree) >= SizeBudget {
+				truncated = true
+				cancelFetch()
+				for range results {
+				}
+				break
+			}
+		}
+
 		if _, err := tree.IndexGame(&r.game); err != nil {
 			log.Warnf("Failed to index game %s: %v", r.game.URL, err)
 		}
+
+		// Track per-source last timestamp for cursor.
+		key := sourceKey(r.src)
+		if !r.game.EndTime.IsZero() {
+			if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
+				lastTimestamp[key] = r.game.EndTime
+			}
+		}
 	}
 
-	log.Infof("Built tree: %d games, %d positions, %d source errors, limit exceeded: %v",
-		tree.GameCount(), tree.PositionCount(), len(sourceErrors), gameLimitExceeded)
+	log.Infof("Built tree: %d games, %d positions, %d source errors, truncated: %v, limit exceeded: %v",
+		tree.GameCount(), tree.PositionCount(), len(sourceErrors), truncated, gameLimitExceeded)
 
 	var srcErrs []SourceError
 	for _, se := range sourceErrors {
@@ -221,13 +272,38 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		return srcErrs[i].Username < srcErrs[j].Username
 	})
 
+	treeResp := treeapi.FromOpeningTree(tree)
+
+	// Build cursor when response was truncated.
+	if truncated {
+		treeResp.Truncated = true
+		cursor := &treeapi.Cursor{
+			Sources:    make(map[string]treeapi.SourceCursor, len(lastTimestamp)),
+			TotalGames: priorGames + tree.GameCount(),
+		}
+		for key, ts := range lastTimestamp {
+			cursor.Sources[key] = treeapi.SourceCursor{LastTimestamp: ts}
+		}
+		treeResp.Cursor = cursor
+	}
+
 	resp := BuildResponse{
-		Response:          treeapi.FromOpeningTree(tree),
+		Response:          treeResp,
 		SourceErrors:      srcErrs,
 		GameLimit:         maxGames,
 		GameLimitExceeded: gameLimitExceeded,
 	}
 	return api.Success(resp), nil
+}
+
+// estimateResponseSize returns a rough byte estimate of the serialized response.
+func estimateResponseSize(tree *openingtree.OpeningTree) int {
+	return tree.GameCount()*bytesPerGame + tree.PositionCount()*bytesPerPosition
+}
+
+// sourceKey returns a stable key for a source, used as cursor map keys.
+func sourceKey(src Source) string {
+	return fmt.Sprintf("%s:%s", src.Type, src.Username)
 }
 
 // getMaxGames returns the game limit from the MAX_GAMES environment variable,

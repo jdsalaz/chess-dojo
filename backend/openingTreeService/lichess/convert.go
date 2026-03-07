@@ -1,6 +1,8 @@
 package lichess
 
 import (
+	"time"
+
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
 )
 
@@ -64,5 +66,6 @@ func ToGame(g *Game, username string) (game.Game, error) {
 		Rated:        g.Rated,
 		URL:          g.URL(),
 		Source:       game.SourceLichess,
+		EndTime:      time.UnixMilli(g.CreatedAt),
 	}, nil
 }

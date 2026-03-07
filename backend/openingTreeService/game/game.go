@@ -2,6 +2,8 @@
 // game representations for use by the opening tree and other services.
 package game
 
+import "time"
+
 // SourceType identifies which platform a game originated from.
 type SourceType string
 
@@ -43,4 +45,5 @@ type Game struct {
 	Rated         bool       `json:"rated"`
 	URL           string     `json:"url"`
 	Source        SourceType `json:"source"`
+	EndTime       time.Time  `json:"endTime,omitempty"`
 }
