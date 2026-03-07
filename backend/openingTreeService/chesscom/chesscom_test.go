@@ -448,6 +448,54 @@ func TestGamesParallelOrdering(t *testing.T) {
 	}
 }
 
+func TestGamesPerGameDateFiltering(t *testing.T) {
+	// The archive covers all of January 2024, but we request only Jan 16–17.
+	// Games on Jan 15 and Jan 18 should be excluded even though their archive is included.
+	gamesFixture := mustReadFile(t, "testdata/games.json")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/pub/player/testuser/games/archives" {
+			fmt.Fprintf(w, `{"archives":["https://api.chess.com/pub/player/testuser/games/2024/01"]}`)
+			return
+		}
+		_, _ = w.Write(gamesFixture)
+	}))
+	defer srv.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &rewriteTransport{
+				base:      srv.Client().Transport,
+				targetURL: srv.URL,
+			},
+		},
+	}
+
+	// since=Jan 16 00:00, until=Jan 18 00:00 → should include Jan 16 and Jan 17 only.
+	since := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2024, 1, 18, 0, 0, 0, 0, time.UTC)
+
+	var collected []game.Game
+	for g, err := range client.Games(context.Background(), "testuser", since, until, false) {
+		if err != nil {
+			t.Fatalf("Games iterator error: %v", err)
+		}
+		collected = append(collected, g)
+	}
+
+	// Fixture has 4 games: Jan 15, 16, 17, 18 (all at 16:00 UTC).
+	// Only Jan 16 and Jan 17 fall within [since, until).
+	if len(collected) != 2 {
+		t.Fatalf("expected 2 games within date range, got %d", len(collected))
+	}
+	for _, g := range collected {
+		if g.EndTime.Before(since) || !g.EndTime.Before(until) {
+			t.Errorf("game EndTime %v outside range [%v, %v)", g.EndTime, since, until)
+		}
+	}
+}
+
 func benchGames(b *testing.B, numArchives int) {
 	b.Helper()
 	gamesFixture := mustReadFileB(b, "testdata/games.json")

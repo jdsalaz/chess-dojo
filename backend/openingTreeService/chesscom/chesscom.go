@@ -285,6 +285,12 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 					yield(game.Game{}, err)
 					return
 				}
+				if !since.IsZero() && cg.EndTime.Before(since) {
+					continue
+				}
+				if !until.IsZero() && !cg.EndTime.Before(until) {
+					continue
+				}
 				if !yield(cg, nil) {
 					return
 				}
