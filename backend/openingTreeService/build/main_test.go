@@ -290,8 +290,11 @@ func TestHandler_InvalidSourceUsername(t *testing.T) {
 	}{
 		{"slash", "user/name"},
 		{"space", "user name"},
-		{"special chars", "user@name!"},
-		{"dot", "user.name"},
+		{"at sign", "user@name"},
+		{"question mark", "user?name"},
+		{"hash", "user#name"},
+		{"colon", "user:name"},
+		{"backslash", "user\\name"},
 	}
 
 	for _, tt := range tests {
@@ -314,11 +317,32 @@ func TestHandler_InvalidSourceUsername(t *testing.T) {
 
 func TestHandler_ValidSourceUsername(t *testing.T) {
 	// Verify the regex directly — valid usernames must pass.
-	validNames := []string{"hikaru", "DrNykterstein", "user_name", "user-name", "Player123", "A", "a1b2c3"}
+	validNames := []string{"hikaru", "DrNykterstein", "user_name", "user-name", "Player123", "A", "a1b2c3", "Dr.Wolf", "user.name", "~tilde"}
 	for _, name := range validNames {
-		if !validUsername.MatchString(name) {
-			t.Errorf("valid username %q was rejected by validUsername regex", name)
+		if rejectUsername.MatchString(name) {
+			t.Errorf("valid username %q was rejected by rejectUsername regex", name)
 		}
+	}
+}
+
+func TestRejectUsername_ControlCharacters(t *testing.T) {
+	// Control characters can't be embedded in JSON strings, so test the regex directly.
+	tests := []struct {
+		name     string
+		username string
+	}{
+		{"null byte", "user\x00name"},
+		{"tab", "user\tname"},
+		{"newline", "user\nname"},
+		{"carriage return", "user\rname"},
+		{"delete", "user\x7fname"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !rejectUsername.MatchString(tt.username) {
+				t.Errorf("expected rejectUsername to match %q", tt.username)
+			}
+		})
 	}
 }
 

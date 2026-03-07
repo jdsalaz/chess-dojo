@@ -49,9 +49,12 @@ const (
 	DefaultLambdaTimeout = 55 * time.Second
 )
 
-// validUsername matches alphanumeric usernames with hyphens and underscores,
-// which is the format used by both Chess.com and Lichess.
-var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// rejectUsername matches characters that are clearly invalid in any chess
+// platform username: control characters, whitespace, URL-significant
+// characters. We intentionally allow dots, tildes, and other characters
+// that some platforms may permit — the upstream API will reject truly
+// invalid usernames with a clear error.
+var rejectUsername = regexp.MustCompile(`[\x00-\x1f\x7f \t\n\r/\\?#@:]`)
 
 var repository database.UserGetter = database.DynamoDB
 
@@ -161,7 +164,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		if src.Username == "" {
 			return api.Failure(errors.New(400, "Invalid request: source username is required", "")), nil
 		}
-		if !validUsername.MatchString(src.Username) {
+		if rejectUsername.MatchString(src.Username) {
 			return api.Failure(errors.New(400, "Invalid request: source username contains invalid characters", "")), nil
 		}
 		switch src.Type {
