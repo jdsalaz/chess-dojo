@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	baseURL              = "https://lichess.org"
-	defaultUserAgent     = "chess-dojo-scheduler (https://github.com/jackstenglein/chess-dojo-scheduler)"
-	defaultStreamTimeout = 50 * time.Second
+	baseURL          = "https://lichess.org"
+	defaultUserAgent = "chess-dojo-scheduler (https://github.com/jackstenglein/chess-dojo-scheduler)"
 )
 
 // TimeClass represents a Lichess game speed category.
@@ -151,9 +150,6 @@ func NewClient(httpClient *http.Client) *Client {
 func (c *Client) Games(ctx context.Context, params FetchParams) iter.Seq2[game.Game, error] {
 	return func(yield func(game.Game, error) bool) {
 		url := c.buildURL(params)
-
-		ctx, cancel := context.WithTimeout(ctx, defaultStreamTimeout)
-		defer cancel()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
