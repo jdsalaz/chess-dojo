@@ -1,4 +1,5 @@
 import { BackendSourceError, buildPlayerOpeningTree, Cursor } from '@/api/explorerApi';
+import { useAuth } from '@/auth/Auth';
 import { logger } from '@/logging/logger';
 import {
     createContext,
@@ -41,6 +42,8 @@ export function usePlayerOpeningTree(): PlayerOpeningTreeContextType {
 }
 
 export function PlayerOpeningTreeProvider({ children }: { children: ReactNode }) {
+    const { user } = useAuth();
+    const idToken = user?.cognitoUser?.tokens?.idToken?.toString() ?? '';
     const [sources, setSources] = useState([DEFAULT_PLAYER_SOURCE]);
     const [isLoading, setIsLoading] = useState(false);
     const [gameCount, setGameCount] = useState(0);
@@ -95,6 +98,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
 
             do {
                 const response = await buildPlayerOpeningTree(
+                    idToken,
                     apiSources,
                     controller.signal,
                     cursor,
@@ -127,7 +131,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
                 setIsLoading(false);
             }
         }
-    }, [sources, setSources, filters.dateRange]);
+    }, [idToken, sources, setSources, filters.dateRange]);
 
     const onCancel = useCallback(() => {
         abortControllerRef.current?.abort();

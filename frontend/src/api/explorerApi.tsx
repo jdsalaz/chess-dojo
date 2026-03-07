@@ -149,10 +149,12 @@ export interface BackendIndexedGame {
 
 /**
  * Builds a player opening tree on the backend.
+ * @param idToken The id token of the current signed-in user.
  * @param sources The player sources to build the tree from.
  * @returns The serialized opening tree.
  */
 export function buildPlayerOpeningTree(
+    idToken: string,
     sources: BuildPlayerOpeningTreeRequest['sources'],
     signal?: AbortSignal,
     cursor?: Cursor,
@@ -169,7 +171,11 @@ export function buildPlayerOpeningTree(
     return axiosService.post<BuildPlayerOpeningTreeResponse>(
         `/explorer/player-opening-tree`,
         body,
-        { functionName: 'buildPlayerOpeningTree', signal },
+        {
+            headers: { Authorization: 'Bearer ' + idToken },
+            functionName: 'buildPlayerOpeningTree',
+            signal,
+        },
     );
 }
 
