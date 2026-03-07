@@ -374,68 +374,6 @@ describe('OpeningTree', () => {
         });
     });
 
-    describe('indexGame', () => {
-        it('indexes a game and makes it retrievable', () => {
-            const tree = new OpeningTree();
-            const game = makeGame({ url: 'url1', result: GameResult.White });
-            const pgn = '1. e4 e5 2. Nf3 1-0';
-
-            const result = tree.indexGame(game, pgn);
-            expect(result).toBe(true);
-            expect(tree.getGameCount()).toBe(1);
-            expect(tree.getGame('url1')).toBeDefined();
-        });
-
-        it('rejects games with fewer than MIN_PLY_COUNT plies', () => {
-            const tree = new OpeningTree();
-            const game = makeGame({ url: 'url1' });
-            const pgn = '1. e4 1-0'; // only 1 ply
-
-            const result = tree.indexGame(game, pgn);
-            expect(result).toBe(false);
-            expect(tree.getGameCount()).toBe(0);
-        });
-
-        it('returns false for invalid PGN', () => {
-            const tree = new OpeningTree();
-            const game = makeGame({ url: 'url1' });
-
-            const result = tree.indexGame(game, 'not a valid pgn %%%');
-            expect(result).toBe(false);
-        });
-
-        it('creates position data for each position in the game', () => {
-            const tree = new OpeningTree();
-            const game = makeGame({ url: 'url1', result: GameResult.White });
-            const pgn = '1. e4 e5 2. Nf3 Nc6 1-0';
-
-            tree.indexGame(game, pgn);
-
-            const filters = makeFilters();
-            // Starting position should have the game
-            const startPos = tree.getPosition(START_FEN, filters);
-            expect(startPos).toBeDefined();
-            expect(startPos!.white).toBe(1);
-            expect(startPos!.moves.length).toBeGreaterThan(0);
-            expect(startPos!.moves[0].san).toBe('e4');
-        });
-
-        it('merges position data when indexing multiple games', () => {
-            const tree = new OpeningTree();
-            const game1 = makeGame({ url: 'url1', result: GameResult.White });
-            const game2 = makeGame({ url: 'url2', result: GameResult.Black });
-
-            tree.indexGame(game1, '1. e4 e5 1-0');
-            tree.indexGame(game2, '1. e4 d5 0-1');
-
-            const filters = makeFilters();
-            const startPos = tree.getPosition(START_FEN, filters);
-            expect(startPos).toBeDefined();
-            // Both games open with e4 from start position
-            expect(startPos!.white + startPos!.black + startPos!.draws).toBe(2);
-        });
-    });
-
     describe('merge', () => {
         it('merges two disjoint trees', () => {
             const game1 = makeGame({ url: 'url1', headers: { Date: '2025.01.01' } });

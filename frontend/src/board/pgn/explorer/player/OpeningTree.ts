@@ -11,8 +11,7 @@ import {
 } from '@/database/explorer';
 import { GameResult } from '@/database/game';
 import { getNormalizedRating } from '@/database/user';
-import { logger } from '@/logging/logger';
-import { Chess, normalizeFen } from '@jackstenglein/chess';
+import { normalizeFen } from '@jackstenglein/chess';
 import { RatingSystem } from '@jackstenglein/chess-dojo-common/src/database/user';
 import { fideDpTable } from '@jackstenglein/chess-dojo-common/src/ratings/performanceRating';
 import deepEqual from 'deep-equal';
@@ -21,7 +20,6 @@ import {
     GameFilters,
     MAX_DOWNLOAD_LIMIT,
     MAX_PLY_COUNT,
-    MIN_PLY_COUNT,
     PlayerSource,
     SourceType,
 } from './PlayerSource';
@@ -415,72 +413,6 @@ export class OpeningTree {
         }
     }
 
-    /**
-     * Indexes a game into the opening tree. Games with only
-     * a single move are skipped.
-     * @param game The data of the game.
-     * @param pgn The pgn of the game.
-     * @returns True if the game was successfully indexed.
-     */
-    indexGame(game: GameData, pgn: string): boolean {
-        try {
-            const chess = new Chess({ pgn });
-            if (chess.plyCount() < MIN_PLY_COUNT) {
-                return false;
-            }
-
-            game.plyCount = chess.plyCount();
-            game.headers = chess.header().valueMap();
-            this.setGame(game);
-
-            const resultKey =
-                game.result === '1-0' ? 'white' : game.result === '0-1' ? 'black' : 'draws';
-            let position: PositionData = {
-                white: 0,
-                black: 0,
-                draws: 0,
-                [resultKey]: 1,
-                games: new Set([game.url]),
-                moves: [
-                    {
-                        san: chess.firstMove()?.san || '',
-                        white: 0,
-                        black: 0,
-                        draws: 0,
-                        [resultKey]: 1,
-                        games: new Set([game.url]),
-                    },
-                ],
-            };
-            this.mergePosition(chess.setUpFen(), position);
-
-            for (const move of chess.history()) {
-                const nextMove = chess.nextMove(move);
-
-                position = {
-                    ...position,
-                    games: new Set([game.url]),
-                    moves: nextMove
-                        ? [
-                              {
-                                  san: nextMove.san,
-                                  white: 0,
-                                  black: 0,
-                                  draws: 0,
-                                  [resultKey]: 1,
-                                  games: new Set([game.url]),
-                              },
-                          ]
-                        : [],
-                };
-                this.mergePosition(move.fen, position);
-            }
-            return true;
-        } catch (err) {
-            logger.error?.(`Failed to index game`, game, err);
-            return false;
-        }
-    }
 }
 
 const BACKEND_TIME_CLASS_MAP: Record<string, OnlineGameTimeClass> = {
