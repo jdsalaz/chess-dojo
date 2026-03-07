@@ -622,24 +622,18 @@ describe('OpeningTree', () => {
             expect(ratedTree.getGames(START_FEN, makeFilters({ casual: false }))).toHaveLength(1);
         });
 
-        it('filters by date range', () => {
+        it('does not filter by date range client-side (handled server-side)', () => {
             const game = makeGame({ url: 'url1', headers: { Date: '2025.06.15' } });
             const tree = treeWithGame(game);
 
-            // Game is within range
-            expect(
-                tree.getGames(START_FEN, makeFilters({ dateRange: ['2025.01.01', '2025.12.31'] })),
-            ).toHaveLength(1);
-
-            // Game is before range start
+            // Date range filters are now applied server-side via since/until in BuildRequest.
+            // Client-side filtering should pass all games regardless of dateRange values.
             expect(
                 tree.getGames(START_FEN, makeFilters({ dateRange: ['2025.07.01', ''] })),
-            ).toHaveLength(0);
-
-            // Game is after range end
+            ).toHaveLength(1);
             expect(
                 tree.getGames(START_FEN, makeFilters({ dateRange: ['', '2025.05.01'] })),
-            ).toHaveLength(0);
+            ).toHaveLength(1);
         });
 
         it('filters by opponent rating', () => {

@@ -90,11 +90,16 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
             const accumulatedTree = new OpeningTree();
             let cursor: Cursor | undefined;
 
+            const since = filters.dateRange[0]?.toUTC().toISO() ?? undefined;
+            const until = filters.dateRange[1]?.endOf('day').toUTC().toISO() ?? undefined;
+
             do {
                 const response = await buildPlayerOpeningTree(
                     apiSources,
                     controller.signal,
                     cursor,
+                    since,
+                    until,
                 );
                 if (controller.signal.aborted) {
                     return;
@@ -122,7 +127,7 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
                 setIsLoading(false);
             }
         }
-    }, [sources, setSources]);
+    }, [sources, setSources, filters.dateRange]);
 
     const onCancel = useCallback(() => {
         abortControllerRef.current?.abort();

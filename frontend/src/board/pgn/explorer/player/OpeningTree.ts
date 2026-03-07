@@ -592,12 +592,6 @@ function matchesFilter(game: GameData | undefined, filter: GameFilters | undefin
     if (!filter.rated && game.rated) {
         return false;
     }
-    if (filter.dateRange[0] && filter.dateRange[0] > game.headers.Date) {
-        return false;
-    }
-    if (filter.dateRange[1] && filter.dateRange[1] < game.headers.Date) {
-        return false;
-    }
     const opponentRating = game.playerColor === Color.White ? game.blackElo : game.whiteElo;
     if (filter.opponentRating[0] > opponentRating || filter.opponentRating[1] < opponentRating) {
         return false;

@@ -97,6 +97,8 @@ export interface Cursor {
 
 export interface BuildPlayerOpeningTreeRequest {
     sources: { type: string; username: string }[];
+    since?: string;
+    until?: string;
     cursor?: Cursor;
 }
 
@@ -154,10 +156,19 @@ export function buildPlayerOpeningTree(
     sources: BuildPlayerOpeningTreeRequest['sources'],
     signal?: AbortSignal,
     cursor?: Cursor,
+    since?: string,
+    until?: string,
 ) {
+    const body: BuildPlayerOpeningTreeRequest = { sources, cursor };
+    if (since) {
+        body.since = since;
+    }
+    if (until) {
+        body.until = until;
+    }
     return axiosService.post<BuildPlayerOpeningTreeResponse>(
         `/explorer/player-opening-tree`,
-        { sources, cursor },
+        body,
         { functionName: 'buildPlayerOpeningTree', signal },
     );
 }
