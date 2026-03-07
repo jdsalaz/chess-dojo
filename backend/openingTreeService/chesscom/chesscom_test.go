@@ -492,6 +492,9 @@ func TestGamesPerGameDateFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Games iterator error: %v", err)
 		}
+		if g.ArchiveComplete {
+			continue
+		}
 		collected = append(collected, g)
 	}
 
