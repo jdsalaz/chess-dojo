@@ -483,6 +483,85 @@ func TestHandler_SourceError(t *testing.T) {
 	}
 }
 
+func TestHandler_GameLimitExceeded(t *testing.T) {
+	chesscomSrv := newChesscomServer(t, "testuser")
+	defer chesscomSrv.Close()
+
+	lichessSrv := newLichessServer(t)
+	defer lichessSrv.Close()
+
+	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Set a low game limit to trigger the cap.
+	t.Setenv("MAX_GAMES", "2")
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"},{"type":"lichess","username":"testplayer"}]}`
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+
+	if !result.GameLimitExceeded {
+		t.Error("expected gameLimitExceeded to be true")
+	}
+	if result.GameLimit != 2 {
+		t.Errorf("expected gameLimit 2, got %d", result.GameLimit)
+	}
+	if len(result.Games) > 2 {
+		t.Errorf("expected at most 2 games, got %d", len(result.Games))
+	}
+}
+
+func TestHandler_GameLimitNotExceeded(t *testing.T) {
+	chesscomSrv := newChesscomServer(t, "testuser")
+	defer chesscomSrv.Close()
+
+	lichessSrv := newLichessServer(t)
+	defer lichessSrv.Close()
+
+	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Set limit higher than fixture count — should not trigger.
+	t.Setenv("MAX_GAMES", "1000")
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+
+	if result.GameLimitExceeded {
+		t.Error("expected gameLimitExceeded to be false")
+	}
+	if result.GameLimit != 1000 {
+		t.Errorf("expected gameLimit 1000, got %d", result.GameLimit)
+	}
+}
+
 func TestHandler_PlainJSONEncoding(t *testing.T) {
 	chesscomSrv := newChesscomServer(t, "testuser")
 	defer chesscomSrv.Close()

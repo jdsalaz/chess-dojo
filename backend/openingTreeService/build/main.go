@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +19,13 @@ import (
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/lichess"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/openingtree"
+)
+
+const (
+	// DefaultMaxGames is the maximum number of games to index when the
+	// MAX_GAMES environment variable is not set. This prevents Lambda
+	// response payloads from exceeding the 6 MB limit.
+	DefaultMaxGames = 1500
 )
 
 var repository database.UserGetter = database.DynamoDB
@@ -43,7 +52,9 @@ type SourceError struct {
 // BuildResponse is the JSON payload returned by the handler.
 type BuildResponse struct {
 	*treeapi.Response
-	SourceErrors []SourceError `json:"sourceErrors,omitempty"`
+	SourceErrors     []SourceError `json:"sourceErrors,omitempty"`
+	GameLimit        int           `json:"gameLimit"`
+	GameLimitExceeded bool         `json:"gameLimitExceeded"`
 }
 
 // fetchResult carries either a game or an error from a source fetcher goroutine.
@@ -98,7 +109,13 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 	}
 
+	maxGames := getMaxGames()
+
 	// Fan out: fetch games from all sources concurrently.
+	// Use a cancellable context so fetchers stop when the game limit is reached.
+	fetchCtx, cancelFetch := context.WithCancel(ctx)
+	defer cancelFetch()
+
 	results := make(chan fetchResult, 64)
 	var wg sync.WaitGroup
 
@@ -113,10 +130,10 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			switch src.Type {
 			case game.SourceChessCom:
 				client := chesscom.NewClient()
-				games = client.Games(ctx, src.Username, since, until, true)
+				games = client.Games(fetchCtx, src.Username, since, until, true)
 			case game.SourceLichess:
 				client := lichess.NewClient(nil)
-				games = client.Games(ctx, lichess.FetchParams{
+				games = client.Games(fetchCtx, lichess.FetchParams{
 					Username: src.Username,
 					Since:    since,
 					Until:    until,
@@ -125,10 +142,19 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 			for g, err := range games {
 				if err != nil {
+					// Don't report context cancellation as a source error;
+					// it means we hit the game limit.
+					if fetchCtx.Err() != nil {
+						return
+					}
 					results <- fetchResult{err: err, src: src}
 					return
 				}
-				results <- fetchResult{game: g, src: src}
+				select {
+				case results <- fetchResult{game: g, src: src}:
+				case <-fetchCtx.Done():
+					return
+				}
 			}
 		}(src)
 	}
@@ -142,6 +168,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	// Fan in: index games into the tree as they arrive (single-goroutine, no mutex needed).
 	tree := openingtree.New()
 	sourceErrors := make(map[string]SourceError)
+	gameLimitExceeded := false
 
 	for r := range results {
 		if r.err != nil {
@@ -156,12 +183,21 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			}
 			continue
 		}
+		if tree.GameCount() >= maxGames {
+			gameLimitExceeded = true
+			cancelFetch()
+			// Drain remaining results from the channel.
+			for range results {
+			}
+			break
+		}
 		if _, err := tree.IndexGame(&r.game); err != nil {
 			log.Warnf("Failed to index game %s: %v", r.game.URL, err)
 		}
 	}
 
-	log.Infof("Built tree: %d games, %d positions, %d source errors", tree.GameCount(), tree.PositionCount(), len(sourceErrors))
+	log.Infof("Built tree: %d games, %d positions, %d source errors, limit exceeded: %v",
+		tree.GameCount(), tree.PositionCount(), len(sourceErrors), gameLimitExceeded)
 
 	var srcErrs []SourceError
 	for _, se := range sourceErrors {
@@ -169,10 +205,23 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	}
 
 	resp := BuildResponse{
-		Response:     treeapi.FromOpeningTree(tree),
-		SourceErrors: srcErrs,
+		Response:          treeapi.FromOpeningTree(tree),
+		SourceErrors:      srcErrs,
+		GameLimit:         maxGames,
+		GameLimitExceeded: gameLimitExceeded,
 	}
 	return api.Success(resp), nil
+}
+
+// getMaxGames returns the game limit from the MAX_GAMES environment variable,
+// falling back to DefaultMaxGames.
+func getMaxGames() int {
+	if v := os.Getenv("MAX_GAMES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return DefaultMaxGames
 }
 
 // timeOrZero dereferences a *time.Time, returning the zero value if nil.
