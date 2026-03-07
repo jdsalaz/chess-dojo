@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -498,8 +499,10 @@ func measureResponseSize(tree *openingtree.OpeningTree) int {
 	resp := treeapi.FromOpeningTree(tree)
 	data, err := json.Marshal(resp)
 	if err != nil {
+		// Marshal failure means we can't measure size, so assume worst case
+		// to trigger truncation and avoid exceeding Lambda's 6MB payload limit.
 		log.Errorf("Failed to marshal response for size check: %v", err)
-		return 0
+		return math.MaxInt
 	}
 	return len(data)
 }
