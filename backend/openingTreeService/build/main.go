@@ -173,8 +173,18 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 	results := make(chan fetchResult, 64)
 	var wg sync.WaitGroup
+	completedSources := make(map[string]bool)
 
 	for _, src := range req.Sources {
+		// Skip sources that were already completed in a previous page.
+		if req.Cursor != nil {
+			key := sourceKey(src)
+			if sc, ok := req.Cursor.Sources[key]; ok && sc.Completed {
+				completedSources[key] = true
+				continue
+			}
+		}
+
 		wg.Add(1)
 		go func(src Source) {
 			defer wg.Done()
@@ -256,7 +266,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	sourceErrors := make(map[string]SourceError)
 	truncated := false
 	gameLimitExceeded := false
-	completedSources := make(map[string]bool)
 
 	// Track the last game EndTime per source for cursor construction.
 	lastTimestamp := make(map[string]time.Time)
@@ -402,7 +411,17 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			TotalGames: priorGames + tree.GameCount(),
 		}
 		for key, ts := range lastTimestamp {
-			cursor.Sources[key] = treeapi.SourceCursor{LastTimestamp: ts}
+			cursor.Sources[key] = treeapi.SourceCursor{
+				LastTimestamp: ts,
+				Completed:    completedSources[key],
+			}
+		}
+		// Include completed sources that have no lastTimestamp entry
+		// (e.g. source completed with zero games in this page).
+		for key := range completedSources {
+			if _, exists := cursor.Sources[key]; !exists {
+				cursor.Sources[key] = treeapi.SourceCursor{Completed: true}
+			}
 		}
 		treeResp.Cursor = cursor
 	}

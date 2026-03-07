@@ -12,6 +12,7 @@ import (
 // SourceCursor holds the resume state for a single source.
 type SourceCursor struct {
 	LastTimestamp time.Time `json:"lastTimestamp"`
+	Completed    bool      `json:"completed,omitempty"`
 }
 
 // Cursor holds pagination state so the client can request subsequent pages.
