@@ -49,6 +49,10 @@ export function PlayerOpeningTreeProvider({ children }: { children: ReactNode })
     const [filters, readonlyFilters] = useGameFilters(sources);
 
     const onLoad = useCallback(async () => {
+        if (abortControllerRef.current) {
+            return;
+        }
+
         const newSources: PlayerSource[] = [];
         const seenSources = new Set<string>();
         for (const source of sources) {
