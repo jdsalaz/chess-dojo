@@ -247,27 +247,27 @@ func (c *Client) GamesByArchive(ctx context.Context, username string, since, unt
 			slots[i] = make(chan archiveResult, 1)
 		}
 
-		// Semaphore limits concurrent fetches.
-		sem := make(chan struct{}, maxConcurrentFetches)
-
 		// Cancel in-flight fetches if we stop early.
 		fetchCtx, cancelFetches := context.WithCancel(ctx)
 
+		// Feed archive indexes into a work channel.
+		work := make(chan int, n)
+		for i := range n {
+			work <- i
+		}
+		close(work)
+
+		// Fixed worker pool pulls from the work channel.
 		var wg sync.WaitGroup
-		for i, archiveURL := range filtered {
+		for range maxConcurrentFetches {
 			wg.Add(1)
-			go func(idx int, url string) {
+			go func() {
 				defer wg.Done()
-				select {
-				case sem <- struct{}{}:
-				case <-fetchCtx.Done():
-					slots[idx] <- archiveResult{err: fetchCtx.Err()}
-					return
+				for idx := range work {
+					games, err := c.FetchGames(fetchCtx, filtered[idx])
+					slots[idx] <- archiveResult{games: games, err: err}
 				}
-				games, err := c.FetchGames(fetchCtx, url)
-				<-sem
-				slots[idx] <- archiveResult{games: games, err: err}
-			}(i, archiveURL)
+			}()
 		}
 
 		// Ensure all goroutines finish before we return.
