@@ -392,6 +392,60 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return t.base.RoundTrip(req)
 }
 
+func TestGamesParallelOrdering(t *testing.T) {
+	// Each archive returns a unique game URL so we can verify ordering.
+	// With 10 archives and concurrency of 5, this exercises the parallel
+	// fetch path while asserting deterministic newest-first output.
+	const numArchives = 10
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/pub/player/testuser/games/archives" {
+			var urls []string
+			for i := 1; i <= numArchives; i++ {
+				urls = append(urls, fmt.Sprintf("https://api.chess.com/pub/player/testuser/games/2024/%02d", i))
+			}
+			fmt.Fprintf(w, `{"archives":[%s]}`, `"`+strings.Join(urls, `","`)+`"`)
+			return
+		}
+		// Extract month from URL path to create a unique game per archive.
+		parts := strings.Split(r.URL.Path, "/")
+		month := parts[len(parts)-1]
+		fmt.Fprintf(w, `{"games":[{"url":"https://www.chess.com/game/live/%s","pgn":"[Event \"Live Chess\"]\n1. e4 e5 *","time_control":"600","end_time":1700000000,"rated":true,"uuid":"uuid-%s","time_class":"rapid","rules":"chess","white":{"rating":1500,"result":"win","username":"TestUser","uuid":"w1"},"black":{"rating":1400,"result":"checkmated","username":"Opponent","uuid":"b1"}}]}`, month, month)
+	}))
+	defer srv.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &rewriteTransport{
+				base:      srv.Client().Transport,
+				targetURL: srv.URL,
+			},
+		},
+	}
+
+	var collected []game.Game
+	for g, err := range client.Games(context.Background(), "testuser", time.Time{}, time.Time{}, false) {
+		if err != nil {
+			t.Fatalf("Games iterator error: %v", err)
+		}
+		collected = append(collected, g)
+	}
+
+	if len(collected) != numArchives {
+		t.Fatalf("expected %d games, got %d", numArchives, len(collected))
+	}
+
+	// Verify newest-first ordering: archive 10 (month 10) should come first.
+	for i, g := range collected {
+		expectedMonth := fmt.Sprintf("%02d", numArchives-i)
+		expectedURL := fmt.Sprintf("https://www.chess.com/game/live/%s", expectedMonth)
+		if g.URL != expectedURL {
+			t.Errorf("game %d: expected URL %s, got %s", i, expectedURL, g.URL)
+		}
+	}
+}
+
 func benchGames(b *testing.B, numArchives int) {
 	b.Helper()
 	gamesFixture := mustReadFileB(b, "testdata/games.json")

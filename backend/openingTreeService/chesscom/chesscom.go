@@ -14,10 +14,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
 )
+
+const maxConcurrentFetches = 5
 
 const (
 	baseURL          = "https://api.chess.com/pub/player"
@@ -201,10 +204,17 @@ func (c *Client) FetchGames(ctx context.Context, archiveURL string) ([]Game, err
 	return resp.Games, nil
 }
 
+// archiveResult holds the fetched games for a single archive slot.
+type archiveResult struct {
+	games []Game
+	err   error
+}
+
 // Games returns an iterator that yields one game.Game at a time from all
 // matching archives. Archives are processed in reverse chronological order
-// (newest first). Non-standard variants are excluded when standardOnly is true.
-// The iterator converts each platform-specific game to the common game model.
+// (newest first). Up to 5 archives are fetched concurrently, but results are
+// drained sequentially to guarantee deterministic ordering. Non-standard
+// variants are excluded when standardOnly is true.
 func (c *Client) Games(ctx context.Context, username string, since, until time.Time, standardOnly bool) iter.Seq2[game.Game, error] {
 	return func(yield func(game.Game, error) bool) {
 		archives, err := c.FetchArchives(ctx, username)
@@ -215,18 +225,60 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 
 		filtered := FilterArchives(archives, since, until)
 
-		// Process newest archive first.
-		for i := len(filtered) - 1; i >= 0; i-- {
-			games, err := c.FetchGames(ctx, filtered[i])
-			if err != nil {
-				yield(game.Game{}, err)
+		// Reverse to newest-first order.
+		n := len(filtered)
+		reversed := make([]string, n)
+		for i := range n {
+			reversed[i] = filtered[n-1-i]
+		}
+
+		// Allocate one slot channel per archive to preserve ordering.
+		slots := make([]chan archiveResult, n)
+		for i := range slots {
+			slots[i] = make(chan archiveResult, 1)
+		}
+
+		// Semaphore limits concurrent fetches.
+		sem := make(chan struct{}, maxConcurrentFetches)
+
+		// Cancel in-flight fetches if we stop early.
+		fetchCtx, cancelFetches := context.WithCancel(ctx)
+
+		var wg sync.WaitGroup
+		for i, archiveURL := range reversed {
+			wg.Add(1)
+			go func(idx int, url string) {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+				case <-fetchCtx.Done():
+					slots[idx] <- archiveResult{err: fetchCtx.Err()}
+					return
+				}
+				games, err := c.FetchGames(fetchCtx, url)
+				<-sem
+				slots[idx] <- archiveResult{games: games, err: err}
+			}(i, archiveURL)
+		}
+
+		// Ensure all goroutines finish before we return.
+		defer func() {
+			cancelFetches()
+			wg.Wait()
+		}()
+
+		// Drain slots in order (0, 1, 2...) to preserve newest-first ordering.
+		for i := range slots {
+			res := <-slots[i]
+			if res.err != nil {
+				yield(game.Game{}, res.err)
 				return
 			}
-			for j := range games {
-				if standardOnly && !games[j].IsStandard() {
+			for j := range res.games {
+				if standardOnly && !res.games[j].IsStandard() {
 					continue
 				}
-				cg, err := ToGame(&games[j], username)
+				cg, err := ToGame(&res.games[j], username)
 				if err != nil {
 					yield(game.Game{}, err)
 					return
