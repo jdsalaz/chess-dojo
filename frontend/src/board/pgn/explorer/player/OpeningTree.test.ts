@@ -1,4 +1,7 @@
+import fs from 'fs';
+import path from 'path';
 import { OnlineGameTimeClass } from '@/api/external/onlineGame';
+import { BuildPlayerOpeningTreeResponse } from '@/api/explorerApi';
 import { GameData } from '@/database/explorer';
 import { GameResult } from '@/database/game';
 import { describe, expect, it } from 'vitest';
@@ -776,6 +779,94 @@ describe('OpeningTree', () => {
             expect(position!.black).toBe(0);
             expect(position!.draws).toBe(0);
             expect(position!.moves).toHaveLength(0);
+        });
+    });
+
+    describe('contract: golden file', () => {
+        const goldenPath = path.resolve(
+            __dirname,
+            '../../../../../../backend/openingTreeService/api/testdata/contract.golden.json',
+        );
+        const golden: BuildPlayerOpeningTreeResponse = JSON.parse(
+            fs.readFileSync(goldenPath, 'utf-8'),
+        );
+
+        it('parses the golden file without errors', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+            expect(tree.getGameCount()).toBe(Object.keys(golden.games).length);
+        });
+
+        it('populates all positions from the golden file', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+            const filters = makeFilters();
+
+            for (const fen of Object.keys(golden.positions)) {
+                const pos = tree.getPosition(fen, filters);
+                expect(pos, `position missing for FEN: ${fen}`).toBeDefined();
+            }
+        });
+
+        it('preserves position stats from the golden file', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+            const filters = makeFilters();
+
+            for (const [fen, bp] of Object.entries(golden.positions)) {
+                const pos = tree.getPosition(fen, filters)!;
+                expect(pos.white).toBe(bp.white);
+                expect(pos.black).toBe(bp.black);
+                expect(pos.draws).toBe(bp.draws);
+            }
+        });
+
+        it('preserves move data from the golden file', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+            const filters = makeFilters();
+
+            for (const [fen, bp] of Object.entries(golden.positions)) {
+                const pos = tree.getPosition(fen, filters)!;
+                const goldenMoves = bp.moves ?? [];
+                expect(pos.moves).toHaveLength(goldenMoves.length);
+
+                for (const gm of goldenMoves) {
+                    const move = pos.moves.find((m) => m.san === gm.san);
+                    expect(move, `move ${gm.san} missing at ${fen}`).toBeDefined();
+                    expect(move!.white).toBe(gm.white);
+                    expect(move!.black).toBe(gm.black);
+                    expect(move!.draws).toBe(gm.draws);
+                }
+            }
+        });
+
+        it('preserves game metadata from the golden file', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+
+            for (const [url, bg] of Object.entries(golden.games)) {
+                const game = tree.getGame(url);
+                expect(game, `game missing: ${url}`).toBeDefined();
+                expect(game!.white).toBe(bg.white);
+                expect(game!.black).toBe(bg.black);
+                expect(game!.whiteElo).toBe(bg.whiteElo);
+                expect(game!.blackElo).toBe(bg.blackElo);
+                expect(game!.result).toBe(bg.result);
+                expect(game!.plyCount).toBe(bg.plyCount);
+                expect(game!.rated).toBe(bg.rated);
+                expect(game!.url).toBe(bg.url);
+                expect(game!.timeClass).toBeDefined();
+                expect(game!.playerColor).toBeDefined();
+                expect(game!.source).toBeDefined();
+                expect(game!.source.type).toBeDefined();
+            }
+        });
+
+        it('maps game fields to correct typed values', () => {
+            const tree = OpeningTree.fromBackendResponse(golden);
+            const bg = golden.games['https://lichess.org/contract1'];
+            const game = tree.getGame('https://lichess.org/contract1')!;
+
+            expect(game.source.type).toBe(SourceType.Lichess);
+            expect(game.playerColor).toBe(Color.White);
+            expect(game.timeClass).toBe(OnlineGameTimeClass.Blitz);
+            expect(game.headers['Event']).toBe(bg.headers['Event']);
         });
     });
 });

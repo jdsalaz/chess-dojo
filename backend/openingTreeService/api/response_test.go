@@ -2,11 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"flag"
+	"os"
 	"testing"
 
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/openingtree"
 )
+
+var updateGolden = flag.Bool("update", false, "update golden files")
 
 func TestFromOpeningTree_Empty(t *testing.T) {
 	tree := openingtree.New()
@@ -446,4 +450,63 @@ func TestSortedKeys_Empty(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("len = %d, want 0", len(got))
 	}
+}
+
+// TestGoldenContract serializes a known Response to JSON and compares it against
+// the golden file testdata/contract.golden.json. If the wire format changes, this
+// test fails. Run with -update to regenerate: go test -run TestGoldenContract -update
+func TestGoldenContract(t *testing.T) {
+	tree := openingtree.New()
+
+	g := &game.Game{
+		URL:           "https://lichess.org/contract1",
+		Result:        game.ResultWhite,
+		Source:        game.SourceLichess,
+		PlayerColor:   "white",
+		WhiteUsername:  "alice",
+		BlackUsername:  "bob",
+		WhiteRating:   1800,
+		BlackRating:   1750,
+		TimeClass:     game.TimeClassBlitz,
+		Rated:         true,
+		PGN: `[Event "Contract Test"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0`,
+	}
+	if _, err := tree.IndexGame(g); err != nil {
+		t.Fatalf("IndexGame error: %v", err)
+	}
+
+	resp := FromOpeningTree(tree)
+	got, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		t.Fatalf("json.MarshalIndent error: %v", err)
+	}
+
+	goldenPath := "testdata/contract.golden.json"
+
+	if *updateGolden {
+		if err := os.WriteFile(goldenPath, append(got, '\n'), 0644); err != nil {
+			t.Fatalf("failed to update golden file: %v", err)
+		}
+		t.Log("updated golden file")
+		return
+	}
+
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("failed to read golden file (run with -update to create): %v", err)
+	}
+
+	if string(got) != string(trimTrailingNewline(want)) {
+		t.Errorf("wire format drift detected!\n\nRun: go test -run TestGoldenContract -update\n\nGot:\n%s\n\nWant:\n%s", string(got), string(want))
+	}
+}
+
+func trimTrailingNewline(b []byte) []byte {
+	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r') {
+		b = b[:len(b)-1]
+	}
+	return b
 }
