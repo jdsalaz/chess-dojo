@@ -576,6 +576,9 @@ func (u *User) GetRatings() (int, int) {
 	}
 
 	r := u.Ratings[u.RatingSystem]
+	if r == nil {
+		return 0, 0
+	}
 	return r.StartRating, r.CurrentRating
 }
 

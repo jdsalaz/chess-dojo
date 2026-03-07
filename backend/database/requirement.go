@@ -264,15 +264,17 @@ func (r *Requirement) CalculateScore(cohort DojoCohort, progress *RequirementPro
 	if r.NumberOfCohorts == 1 || r.NumberOfCohorts == 0 {
 		count = progress.Counts[AllCohorts]
 	} else if r.NumberOfCohorts > 1 && len(progress.Counts) >= r.NumberOfCohorts {
-		if c, ok := progress.Counts[cohort]; ok {
-			count = c
-		} else {
-			for _, c := range progress.Counts {
-				if c > count {
-					count = c
-				}
+		var bestScore float32
+		for c, cnt := range progress.Counts {
+			if _, ok := r.Counts[c]; !ok {
+				continue
+			}
+			s := r.CalculateScoreCount(c, cnt)
+			if s > bestScore {
+				bestScore = s
 			}
 		}
+		return bestScore
 	} else {
 		count = progress.Counts[cohort]
 	}
