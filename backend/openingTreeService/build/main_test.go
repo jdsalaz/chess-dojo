@@ -133,16 +133,19 @@ func decodeJSONResponse(t *testing.T, resp api.Response) BuildResponse {
 	return result
 }
 
-// setTransport overrides the default HTTP transport so Chess.com and Lichess
-// clients hit the test servers instead of the real APIs.
-func setTransport(chesscomHost, lichessHost string) func() {
-	original := http.DefaultTransport
-	http.DefaultTransport = &rewriteTransport{
-		base:        original,
-		chesscomURL: chesscomHost,
-		lichessURL:  lichessHost,
+// setHTTPClient creates a per-test *http.Client with a rewriteTransport that
+// redirects Chess.com and Lichess API calls to the given test server addresses.
+// It sets the package-level httpClient variable and returns a restore function.
+func setHTTPClient(chesscomHost, lichessHost string) func() {
+	original := httpClient
+	httpClient = &http.Client{
+		Transport: &rewriteTransport{
+			base:        http.DefaultTransport,
+			chesscomURL: chesscomHost,
+			lichessURL:  lichessHost,
+		},
 	}
-	return func() { http.DefaultTransport = original }
+	return func() { httpClient = original }
 }
 
 func subscribedUser(username string) *mockUserGetter {
@@ -281,7 +284,7 @@ func TestHandler_ChessComOnly(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -333,7 +336,7 @@ func TestHandler_LichessOnly(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -375,7 +378,7 @@ func TestHandler_BothSources(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -443,7 +446,7 @@ func TestHandler_SourceError(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -493,7 +496,7 @@ func TestHandler_GameLimitExceeded(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -534,7 +537,7 @@ func TestHandler_GameLimitNotExceeded(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -602,7 +605,7 @@ func TestHandler_DateRangeFiltering(t *testing.T) {
 	lichessSrv := httptest.NewServer(lichessMux)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository
@@ -670,7 +673,7 @@ func TestHandler_PlainJSONEncoding(t *testing.T) {
 	lichessSrv := newLichessServer(t)
 	defer lichessSrv.Close()
 
-	restore := setTransport(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
 	defer restore()
 
 	oldRepo := repository

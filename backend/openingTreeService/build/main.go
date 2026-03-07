@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -30,6 +31,10 @@ const (
 )
 
 var repository database.UserGetter = database.DynamoDB
+
+// httpClient is the HTTP client used to create Chess.com and Lichess API clients.
+// Tests override this to inject per-test transports instead of mutating http.DefaultTransport.
+var httpClient *http.Client
 
 type Source struct {
 	Type     game.SourceType `json:"type"`
@@ -130,10 +135,15 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			var games func(func(game.Game, error) bool)
 			switch src.Type {
 			case game.SourceChessCom:
-				client := chesscom.NewClient()
+				var client *chesscom.Client
+				if httpClient != nil {
+					client = chesscom.NewClientWithHTTP(httpClient)
+				} else {
+					client = chesscom.NewClient()
+				}
 				games = client.Games(fetchCtx, src.Username, since, until, true)
 			case game.SourceLichess:
-				client := lichess.NewClient(nil)
+				client := lichess.NewClient(httpClient)
 				games = client.Games(fetchCtx, lichess.FetchParams{
 					Username: src.Username,
 					Since:    since,
