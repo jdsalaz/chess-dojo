@@ -11,7 +11,7 @@ import (
 
 // SourceCursor holds the resume state for a single source.
 type SourceCursor struct {
-	LastTimestamp time.Time `json:"lastTimestamp,omitempty"`
+	LastTimestamp time.Time `json:"lastTimestamp,omitzero"`
 	// LastUntil is the min EndTime seen for sources that paginate backwards
 	// (newest-first), such as Lichess. On resume, this value is sent as the
 	// "until" parameter so the next page returns games older than this point.
@@ -20,7 +20,7 @@ type SourceCursor struct {
 	// and truncation fires between them, the second game will be silently lost
 	// on resume because Lichess treats "until" as exclusive (lastMoveAt < until).
 	// This is extremely unlikely (same player, same server-side millisecond).
-	LastUntil time.Time `json:"lastUntil,omitempty"`
+	LastUntil time.Time `json:"lastUntil,omitzero"`
 	Completed bool      `json:"completed,omitempty"`
 }
 
