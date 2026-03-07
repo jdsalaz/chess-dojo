@@ -61,8 +61,8 @@ type Source struct {
 
 type BuildRequest struct {
 	Sources []Source         `json:"sources"`
-	Since   *time.Time       `json:"since,omitempty"`
-	Until   *time.Time       `json:"until,omitempty"`
+	Since   *string          `json:"since,omitempty"`
+	Until   *string          `json:"until,omitempty"`
 	Cursor  *treeapi.Cursor  `json:"cursor,omitempty"`
 }
 
@@ -115,6 +115,23 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	if err := json.Unmarshal([]byte(event.Body), &req); err != nil {
 		return api.Failure(errors.New(400, "Invalid request: unable to parse body", "")), nil
 	}
+
+	var sinceTime, untilTime time.Time
+	if req.Since != nil {
+		t, err := time.Parse(time.RFC3339, *req.Since)
+		if err != nil {
+			return api.Failure(errors.New(400, fmt.Sprintf("Invalid request: 'since' must be RFC3339 format (e.g. 2024-01-01T00:00:00Z), got %q", *req.Since), "")), nil
+		}
+		sinceTime = t
+	}
+	if req.Until != nil {
+		t, err := time.Parse(time.RFC3339, *req.Until)
+		if err != nil {
+			return api.Failure(errors.New(400, fmt.Sprintf("Invalid request: 'until' must be RFC3339 format (e.g. 2024-01-31T23:59:59Z), got %q", *req.Until), "")), nil
+		}
+		untilTime = t
+	}
+
 	if len(req.Sources) == 0 {
 		return api.Failure(errors.New(400, "Invalid request: at least one source is required", "")), nil
 	}
@@ -161,7 +178,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		go func(src Source) {
 			defer wg.Done()
 
-			since, until := timeOrZero(req.Since), timeOrZero(req.Until)
+			since, until := sinceTime, untilTime
 
 			// If a cursor is provided, resume from the last timestamp for this source.
 			if req.Cursor != nil {
@@ -377,10 +394,3 @@ func getMaxGames() int {
 	return DefaultMaxGames
 }
 
-// timeOrZero dereferences a *time.Time, returning the zero value if nil.
-func timeOrZero(t *time.Time) time.Time {
-	if t == nil {
-		return time.Time{}
-	}
-	return *t
-}

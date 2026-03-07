@@ -807,6 +807,137 @@ func TestHandler_CursorResume(t *testing.T) {
 	}
 }
 
+// TestBuildRequest_FrontendJSONContract verifies that the Go BuildRequest struct
+// can parse the exact JSON shape produced by the frontend's explorerApi.tsx
+// BuildPlayerOpeningTreeRequest. This catches format drift between frontend and backend.
+func TestBuildRequest_FrontendJSONContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		json      string
+		wantErr   bool
+		checkFunc func(t *testing.T, req BuildRequest)
+	}{
+		{
+			name: "minimal request (no date filters)",
+			json: `{"sources":[{"type":"chesscom","username":"testuser"}]}`,
+			checkFunc: func(t *testing.T, req BuildRequest) {
+				if len(req.Sources) != 1 {
+					t.Fatalf("expected 1 source, got %d", len(req.Sources))
+				}
+				if req.Sources[0].Type != "chesscom" {
+					t.Errorf("expected source type chesscom, got %s", req.Sources[0].Type)
+				}
+				if req.Since != nil {
+					t.Error("expected since to be nil")
+				}
+				if req.Until != nil {
+					t.Error("expected until to be nil")
+				}
+			},
+		},
+		{
+			name: "with ISO 8601 date range (Luxon toISO format)",
+			json: `{"sources":[{"type":"lichess","username":"player1"}],"since":"2024-01-01T00:00:00.000Z","until":"2024-01-31T23:59:59.999Z"}`,
+			checkFunc: func(t *testing.T, req BuildRequest) {
+				if req.Since == nil {
+					t.Fatal("expected since to be non-nil")
+				}
+				if req.Until == nil {
+					t.Fatal("expected until to be non-nil")
+				}
+				// Verify the strings parse as RFC3339.
+				sinceTime, err := time.Parse(time.RFC3339, *req.Since)
+				if err != nil {
+					t.Fatalf("since failed RFC3339 parse: %v", err)
+				}
+				untilTime, err := time.Parse(time.RFC3339, *req.Until)
+				if err != nil {
+					t.Fatalf("until failed RFC3339 parse: %v", err)
+				}
+				if sinceTime.Year() != 2024 || sinceTime.Month() != 1 || sinceTime.Day() != 1 {
+					t.Errorf("unexpected since date: %v", sinceTime)
+				}
+				if untilTime.Year() != 2024 || untilTime.Month() != 1 || untilTime.Day() != 31 {
+					t.Errorf("unexpected until date: %v", untilTime)
+				}
+			},
+		},
+		{
+			name: "with cursor and date range",
+			json: `{"sources":[{"type":"chesscom","username":"user1"},{"type":"lichess","username":"user2"}],"since":"2024-06-01T00:00:00.000Z","until":"2024-06-30T23:59:59.999Z","cursor":{"sources":{"chesscom:user1":{"lastTimestamp":"2024-06-15T12:00:00Z"}},"totalGames":100}}`,
+			checkFunc: func(t *testing.T, req BuildRequest) {
+				if len(req.Sources) != 2 {
+					t.Fatalf("expected 2 sources, got %d", len(req.Sources))
+				}
+				if req.Since == nil || req.Until == nil {
+					t.Fatal("expected since and until to be non-nil")
+				}
+				if req.Cursor == nil {
+					t.Fatal("expected cursor to be non-nil")
+				}
+				if req.Cursor.TotalGames != 100 {
+					t.Errorf("expected cursor totalGames 100, got %d", req.Cursor.TotalGames)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req BuildRequest
+			err := json.Unmarshal([]byte(tt.json), &req)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected unmarshal error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unmarshal failed: %v", err)
+			}
+			if tt.checkFunc != nil {
+				tt.checkFunc(t, req)
+			}
+		})
+	}
+}
+
+func TestHandler_InvalidSinceFormat(t *testing.T) {
+	oldRepo := repository
+	repository = subscribedUser("testuser")
+	defer func() { repository = oldRepo }()
+
+	event := makeEvent("testuser", `{"sources":[{"type":"chesscom","username":"foo"}],"since":"not-a-date"}`)
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Body, "since") {
+		t.Errorf("expected error to mention 'since', got: %s", resp.Body)
+	}
+}
+
+func TestHandler_InvalidUntilFormat(t *testing.T) {
+	oldRepo := repository
+	repository = subscribedUser("testuser")
+	defer func() { repository = oldRepo }()
+
+	event := makeEvent("testuser", `{"sources":[{"type":"chesscom","username":"foo"}],"until":"2024-01-01"}`)
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Body, "until") {
+		t.Errorf("expected error to mention 'until', got: %s", resp.Body)
+	}
+}
+
 // newSlowServer serves games only after its context is cancelled, simulating a slow API.
 func newSlowServer(t *testing.T) *httptest.Server {
 	t.Helper()
