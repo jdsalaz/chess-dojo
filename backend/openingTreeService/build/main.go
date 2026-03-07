@@ -81,6 +81,10 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	if len(req.Sources) == 0 {
 		return api.Failure(errors.New(400, "Invalid request: at least one source is required", "")), nil
 	}
+	const maxSources = 10
+	if len(req.Sources) > maxSources {
+		return api.Failure(errors.New(400, fmt.Sprintf("Invalid request: at most %d sources are allowed", maxSources), "")), nil
+	}
 
 	// Validate all sources upfront before starting goroutines.
 	for _, src := range req.Sources {

@@ -216,6 +216,31 @@ func TestHandler_NoSources(t *testing.T) {
 	}
 }
 
+func TestHandler_TooManySources(t *testing.T) {
+	oldRepo := repository
+	repository = subscribedUser("testuser")
+	defer func() { repository = oldRepo }()
+
+	// Build a request with 11 sources (exceeds maxSources=10).
+	sources := `[`
+	for i := 0; i < 11; i++ {
+		if i > 0 {
+			sources += ","
+		}
+		sources += fmt.Sprintf(`{"type":"chesscom","username":"user%d"}`, i)
+	}
+	sources += `]`
+
+	event := makeEvent("testuser", fmt.Sprintf(`{"sources":%s}`, sources))
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestHandler_InvalidSourceType(t *testing.T) {
 	oldRepo := repository
 	repository = subscribedUser("testuser")
