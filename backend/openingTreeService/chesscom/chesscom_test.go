@@ -422,6 +422,9 @@ func mustReadFileB(b *testing.B, path string) []byte {
 }
 
 func BenchmarkGames_12Archives_50msLatency(b *testing.B) {
+	if os.Getenv("BENCH_LATENCY") == "" {
+		b.Skip("skipping latency benchmark; set BENCH_LATENCY=1 to run")
+	}
 	benchGames(b, 50*time.Millisecond, 12)
 }
 
