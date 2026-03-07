@@ -3,7 +3,12 @@ import {
     BuildPlayerOpeningTreeResponse,
 } from '@/api/explorerApi';
 import { OnlineGameTimeClass } from '@/api/external/onlineGame';
-import { GameData, LichessExplorerMove, LichessExplorerPosition } from '@/database/explorer';
+import {
+    GameData,
+    LichessExplorerMove,
+    LichessExplorerPosition,
+    PerformanceData,
+} from '@/database/explorer';
 import { GameResult } from '@/database/game';
 import { getNormalizedRating } from '@/database/user';
 import { logger } from '@/logging/logger';
@@ -20,6 +25,13 @@ import {
     PlayerSource,
     SourceType,
 } from './PlayerSource';
+
+interface StatsResult {
+    white: number;
+    black: number;
+    draws: number;
+    performanceData?: PerformanceData;
+}
 
 interface PositionDataMove extends LichessExplorerMove {
     /**
@@ -240,6 +252,32 @@ export class OpeningTree {
             return cached;
         }
 
+        const positionStats = this.calculateStats(position.games);
+
+        const moves = position.moves
+            .map((move) => {
+                const moveStats = this.calculateStats(move.games);
+                return { ...move, ...moveStats };
+            })
+            .filter((m) => m.white || m.black || m.draws)
+            .sort(
+                (lhs, rhs) =>
+                    rhs.white + rhs.black + rhs.draws - (lhs.white + lhs.black + lhs.draws),
+            );
+
+        const result = { ...position, ...positionStats, moves };
+
+        this.positionCache.set(fen, result);
+        return result;
+    }
+
+    /**
+     * Calculates W/D/L stats and performance data for a set of game URLs,
+     * applying the current filters.
+     * @param gameUrls The set of game URLs to calculate stats for.
+     * @returns The calculated stats including white, black, draws, and optional performanceData.
+     */
+    private calculateStats(gameUrls: Set<string>): StatsResult {
         let white = 0;
         let black = 0;
         let draws = 0;
@@ -250,7 +288,7 @@ export class OpeningTree {
         let bestWin: GameData | undefined = undefined;
         let worstLoss: GameData | undefined = undefined;
 
-        for (const url of position.games) {
+        for (const url of gameUrls) {
             const game = this.getGame(url);
             if (
                 !game ||
@@ -320,117 +358,7 @@ export class OpeningTree {
             totalOpponentRating += opponentRating;
         }
 
-        const moves = position.moves
-            .map((move) => {
-                let white = 0;
-                let black = 0;
-                let draws = 0;
-                let playerWins = 0;
-                let totalOpponentRating = 0;
-
-                let lastPlayed: GameData | undefined = undefined;
-                let bestWin: GameData | undefined = undefined;
-                let worstLoss: GameData | undefined = undefined;
-
-                for (const url of move.games) {
-                    const game = this.getGame(url);
-                    if (
-                        !game ||
-                        (!this.mostRecentGames?.has(url) &&
-                            (this.mostRecentGames || !matchesFilter(game, this.filters)))
-                    ) {
-                        continue;
-                    }
-
-                    if (game.headers.Date > (lastPlayed?.headers.Date ?? '')) {
-                        lastPlayed = game;
-                    }
-
-                    const opponentRating =
-                        game.playerColor === Color.White
-                            ? game.normalizedBlackElo
-                            : game.normalizedWhiteElo;
-
-                    if (game.result === GameResult.White) {
-                        white++;
-                        if (game.playerColor === Color.White) {
-                            playerWins++;
-                            const bestWinOpponentRating = bestWin
-                                ? bestWin.playerColor === Color.White
-                                    ? bestWin.normalizedBlackElo
-                                    : bestWin.normalizedWhiteElo
-                                : 0;
-                            if (opponentRating > bestWinOpponentRating) {
-                                bestWin = game;
-                            }
-                        } else {
-                            const worstLossOpponentRating = worstLoss
-                                ? worstLoss.playerColor === Color.White
-                                    ? worstLoss.normalizedBlackElo
-                                    : worstLoss.normalizedWhiteElo
-                                : Infinity;
-                            if (opponentRating < worstLossOpponentRating) {
-                                worstLoss = game;
-                            }
-                        }
-                    } else if (game.result === GameResult.Black) {
-                        black++;
-                        if (game.playerColor === Color.Black) {
-                            playerWins++;
-                            const bestWinOpponentRating = bestWin
-                                ? bestWin.playerColor === Color.White
-                                    ? bestWin.normalizedBlackElo
-                                    : bestWin.normalizedWhiteElo
-                                : 0;
-                            if (opponentRating > bestWinOpponentRating) {
-                                bestWin = game;
-                            }
-                        } else {
-                            const worstLossOpponentRating = worstLoss
-                                ? worstLoss.playerColor === Color.White
-                                    ? worstLoss.normalizedBlackElo
-                                    : worstLoss.normalizedWhiteElo
-                                : Infinity;
-                            if (opponentRating < worstLossOpponentRating) {
-                                worstLoss = game;
-                            }
-                        }
-                    } else {
-                        draws++;
-                    }
-
-                    totalOpponentRating += opponentRating;
-                }
-                const result = { ...move, white, black, draws };
-                const totalGames = white + black + draws;
-                if (lastPlayed && totalGames > 0) {
-                    const score = playerWins + draws / 2;
-                    const percentage = (score / totalGames) * 100;
-                    const ratingDiff = fideDpTable[Math.round(percentage)];
-                    const averageOpponentRating = Math.round(totalOpponentRating / totalGames);
-                    const performanceRating = averageOpponentRating + ratingDiff;
-
-                    result.performanceData = {
-                        playerWins,
-                        playerDraws: draws,
-                        playerLosses: totalGames - playerWins - draws,
-                        performanceRating,
-                        averageOpponentRating,
-                        lastPlayed,
-                        bestWin,
-                        worstLoss,
-                    };
-                }
-                return result;
-            })
-            .filter((m) => m.white || m.black || m.draws)
-            .sort(
-                (lhs, rhs) =>
-                    rhs.white + rhs.black + rhs.draws - (lhs.white + lhs.black + lhs.draws),
-            );
-
-        const result = { ...position, white, black, draws, moves };
-
+        const result: StatsResult = { white, black, draws };
         const totalGames = white + black + draws;
         if (lastPlayed && totalGames > 0) {
             const score = playerWins + draws / 2;
@@ -451,7 +379,6 @@ export class OpeningTree {
             };
         }
 
-        this.positionCache.set(fen, result);
         return result;
     }
 
