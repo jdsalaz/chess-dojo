@@ -8,7 +8,7 @@ const emptyFunction = () => null;
 
 export function usePlayerGames(
     fen: string,
-    openingTree: RefObject<OpeningTree | undefined | null>,
+    openingTree: RefObject<OpeningTree | undefined>,
     filters: GameFilters,
 ): PaginationResult {
     const [page, setPage] = useState(0);

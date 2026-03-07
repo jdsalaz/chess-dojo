@@ -24,7 +24,7 @@ export interface PlayerOpeningTreeContextType {
     onLoad: () => Promise<void>;
     onCancel: () => void;
     onClear: () => void;
-    openingTree: RefObject<OpeningTree | undefined | null>;
+    openingTree: RefObject<OpeningTree | undefined>;
     filters: EditableGameFilters;
     readonlyFilters: GameFilters;
     error: string | undefined;
