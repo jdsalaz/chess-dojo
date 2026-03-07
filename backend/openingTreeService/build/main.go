@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -203,6 +204,12 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	for _, se := range sourceErrors {
 		srcErrs = append(srcErrs, se)
 	}
+	sort.Slice(srcErrs, func(i, j int) bool {
+		if srcErrs[i].Source != srcErrs[j].Source {
+			return srcErrs[i].Source < srcErrs[j].Source
+		}
+		return srcErrs[i].Username < srcErrs[j].Username
+	})
 
 	resp := BuildResponse{
 		Response:          treeapi.FromOpeningTree(tree),
