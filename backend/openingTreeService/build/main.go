@@ -84,11 +84,14 @@ type BuildResponse struct {
 
 // fetchResult carries either a game or an error from a source fetcher goroutine.
 type fetchResult struct {
-	game             game.Game
-	err              error
-	src              Source
-	done             bool // true when this source finished iterating all games
-	archiveComplete  bool // true when a Chess.com archive boundary was reached
+	game  game.Game
+	err   error
+	src   Source
+	done  bool // true when this source finished iterating all games
+	// For Chess.com batches: signals an archive boundary with the next-month
+	// timestamp for cursor updates. When set, game is zero-valued.
+	archiveBoundary  bool
+	archiveNextMonth time.Time
 }
 
 func main() {
@@ -206,7 +209,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 				}
 			}
 
-			var games func(func(game.Game, error) bool)
 			switch src.Type {
 			case game.SourceChessCom:
 				var client *chesscom.Client
@@ -215,42 +217,49 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 				} else {
 					client = chesscom.NewClient()
 				}
-				games = client.Games(fetchCtx, src.Username, since, until, true)
-			case game.SourceLichess:
-				client := lichess.NewClient(httpClient)
-				games = client.Games(fetchCtx, lichess.FetchParams{
-					Username: src.Username,
-					Since:    since,
-					Until:    until,
-				})
-			}
-
-			for g, err := range games {
-				if err != nil {
-					// Don't report context cancellation as a source error;
-					// it means we hit the budget or the graceful timeout.
-					if fetchCtx.Err() != nil {
+				for batch, err := range client.GamesByArchive(fetchCtx, src.Username, since, until, true) {
+					if err != nil {
+						if fetchCtx.Err() != nil {
+							return
+						}
+						results <- fetchResult{err: err, src: src}
 						return
 					}
-					results <- fetchResult{err: err, src: src}
-					return
-				}
-
-				// Forward archive-complete sentinels from Chess.com so the
-				// fan-in loop can defer truncation to archive boundaries.
-				if g.ArchiveComplete {
+					for _, g := range batch.Games {
+						select {
+						case results <- fetchResult{game: g, src: src}:
+						case <-fetchCtx.Done():
+							return
+						}
+					}
+					// Signal the archive boundary so the fan-in loop can
+					// update the cursor and check truncation.
 					select {
-					case results <- fetchResult{src: src, archiveComplete: true, game: g}:
+					case results <- fetchResult{src: src, archiveBoundary: true, archiveNextMonth: batch.NextMonth}:
 					case <-fetchCtx.Done():
 						return
 					}
-					continue
 				}
 
-				select {
-				case results <- fetchResult{game: g, src: src}:
-				case <-fetchCtx.Done():
-					return
+			case game.SourceLichess:
+				client := lichess.NewClient(httpClient)
+				for g, err := range client.Games(fetchCtx, lichess.FetchParams{
+					Username: src.Username,
+					Since:    since,
+					Until:    until,
+				}) {
+					if err != nil {
+						if fetchCtx.Err() != nil {
+							return
+						}
+						results <- fetchResult{err: err, src: src}
+						return
+					}
+					select {
+					case results <- fetchResult{game: g, src: src}:
+					case <-fetchCtx.Done():
+						return
+					}
 				}
 			}
 
@@ -328,14 +337,13 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			continue
 		}
 
-		// Chess.com archive-complete sentinel: update the cursor timestamp
-		// to the archive boundary and check truncation. This ensures we
-		// only truncate at archive boundaries so that on resume
-		// FilterArchives cleanly excludes already-processed months.
-		if r.archiveComplete {
+		// Chess.com archive boundary: update the cursor timestamp and check
+		// truncation. This ensures we only truncate at archive boundaries
+		// so that on resume FilterArchives cleanly excludes already-processed months.
+		if r.archiveBoundary {
 			key := sourceKey(r.src)
-			if !r.game.EndTime.IsZero() {
-				lastTimestamp[key] = r.game.EndTime
+			if !r.archiveNextMonth.IsZero() {
+				lastTimestamp[key] = r.archiveNextMonth
 			}
 			if checkTruncation() {
 				break
