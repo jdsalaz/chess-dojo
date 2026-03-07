@@ -33,7 +33,10 @@ const (
 	SizeBudget = 5_000_000
 
 	// sizeCheckInterval controls how often (in games indexed) we measure
-	// the serialized response size via json.Marshal.
+	// the serialized response size via json.Marshal. Up to 199 games can
+	// be indexed between checks, so the actual size may exceed SizeBudget
+	// before truncation triggers. The ~1 MB headroom between SizeBudget
+	// (5 MB) and Lambda's 6 MB payload limit absorbs this overshoot.
 	sizeCheckInterval = 200
 
 	// LambdaGracePeriod is subtracted from the Lambda deadline so there is
@@ -263,6 +266,9 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 
 		// Periodic size budget check using actual serialization.
+		// This only fires every sizeCheckInterval games, so the true size
+		// can overshoot SizeBudget by up to one interval's worth of data.
+		// See the sizeCheckInterval comment for why that's safe.
 		if tree.GameCount() > 0 && tree.GameCount()%sizeCheckInterval == 0 {
 			if measureResponseSize(tree) >= SizeBudget {
 				truncated = true
