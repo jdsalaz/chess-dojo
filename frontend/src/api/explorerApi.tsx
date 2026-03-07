@@ -86,8 +86,18 @@ export function followPosition(idToken: string, request: FollowPositionRequest) 
     );
 }
 
+export interface SourceCursor {
+    lastTimestamp: string;
+}
+
+export interface Cursor {
+    sources: Record<string, SourceCursor>;
+    totalGames: number;
+}
+
 export interface BuildPlayerOpeningTreeRequest {
     sources: { type: string; username: string }[];
+    cursor?: Cursor;
 }
 
 export interface BackendSourceError {
@@ -100,6 +110,8 @@ export interface BuildPlayerOpeningTreeResponse {
     positions: Record<string, BackendPositionData>;
     games: Record<string, BackendIndexedGame>;
     sourceErrors?: BackendSourceError[];
+    truncated?: boolean;
+    cursor?: Cursor;
 }
 
 export interface BackendPositionData {
@@ -141,10 +153,11 @@ export interface BackendIndexedGame {
 export function buildPlayerOpeningTree(
     sources: BuildPlayerOpeningTreeRequest['sources'],
     signal?: AbortSignal,
+    cursor?: Cursor,
 ) {
     return axiosService.post<BuildPlayerOpeningTreeResponse>(
         `/explorer/player-opening-tree`,
-        { sources },
+        { sources, cursor },
         { functionName: 'buildPlayerOpeningTree', signal },
     );
 }
