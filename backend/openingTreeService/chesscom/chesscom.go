@@ -228,12 +228,11 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 
 		filtered := FilterArchives(archives, since, until)
 
-		// Reverse to newest-first order.
+		// Process archives in chronological order (oldest-first). This
+		// ensures cursor pagination works correctly: on resume the cursor's
+		// since timestamp excludes already-processed older archives while
+		// newer archives are still ahead.
 		n := len(filtered)
-		reversed := make([]string, n)
-		for i := range n {
-			reversed[i] = filtered[n-1-i]
-		}
 
 		// Allocate one slot channel per archive to preserve ordering.
 		slots := make([]chan archiveResult, n)
@@ -248,7 +247,7 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 		fetchCtx, cancelFetches := context.WithCancel(ctx)
 
 		var wg sync.WaitGroup
-		for i, archiveURL := range reversed {
+		for i, archiveURL := range filtered {
 			wg.Add(1)
 			go func(idx int, url string) {
 				defer wg.Done()
@@ -270,7 +269,7 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 			wg.Wait()
 		}()
 
-		// Drain slots in order (0, 1, 2...) to preserve newest-first ordering.
+		// Drain slots in order (0, 1, 2...) to preserve oldest-first ordering.
 		for i := range slots {
 			res := <-slots[i]
 			if res.err != nil {
@@ -293,6 +292,19 @@ func (c *Client) Games(ctx context.Context, username string, since, until time.T
 					continue
 				}
 				if !yield(cg, nil) {
+					return
+				}
+			}
+
+			// Yield an archive-complete sentinel so the consumer knows
+			// all games from this monthly archive have been delivered.
+			// EndTime is set to the start of the next month so that on
+			// resume FilterArchives(since=EndTime) excludes this archive.
+			if m := archiveRegex.FindStringSubmatch(filtered[i]); m != nil {
+				year, _ := strconv.Atoi(m[1])
+				month, _ := strconv.Atoi(m[2])
+				nextMonth := time.Date(year, time.Month(month)+1, 1, 0, 0, 0, 0, time.UTC)
+				if !yield(game.Game{ArchiveComplete: true, EndTime: nextMonth}, nil) {
 					return
 				}
 			}

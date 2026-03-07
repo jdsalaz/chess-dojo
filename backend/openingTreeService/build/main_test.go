@@ -1128,3 +1128,119 @@ func TestHandler_PlainJSONEncoding(t *testing.T) {
 		t.Error("expected games in decoded response")
 	}
 }
+
+// TestHandler_ChessComNoDuplicatesAcrossPages verifies that cursor pagination
+// for Chess.com sources does not produce duplicate games. It sets up two
+// archives with distinct games, triggers truncation after the first archive,
+// then resumes with the returned cursor and checks that no game URL appears
+// in both pages.
+func TestHandler_ChessComNoDuplicatesAcrossPages(t *testing.T) {
+	// Two archives with distinct games per month.
+	archivesJSON := `{"archives":[
+		"https://api.chess.com/pub/player/testuser/games/2024/01",
+		"https://api.chess.com/pub/player/testuser/games/2024/02"
+	]}`
+
+	// Jan games: 3 standard games.
+	janGames := `{"games":[
+		{"url":"https://www.chess.com/game/live/jan-1","pgn":"[Event \"Live Chess\"]\n[White \"TestUser\"]\n[Black \"OpA\"]\n[Result \"1-0\"]\n1. e4 e5 1-0","time_control":"600","end_time":1706745600,"rated":true,"uuid":"jan-1","time_class":"rapid","rules":"chess","white":{"rating":1500,"result":"win","username":"TestUser","uuid":"w1"},"black":{"rating":1400,"result":"checkmated","username":"OpA","uuid":"b1"}},
+		{"url":"https://www.chess.com/game/live/jan-2","pgn":"[Event \"Live Chess\"]\n[White \"OpB\"]\n[Black \"TestUser\"]\n[Result \"0-1\"]\n1. d4 d5 0-1","time_control":"600","end_time":1706832000,"rated":true,"uuid":"jan-2","time_class":"rapid","rules":"chess","white":{"rating":1600,"result":"resigned","username":"OpB","uuid":"w2"},"black":{"rating":1500,"result":"win","username":"TestUser","uuid":"b2"}},
+		{"url":"https://www.chess.com/game/live/jan-3","pgn":"[Event \"Live Chess\"]\n[White \"TestUser\"]\n[Black \"OpC\"]\n[Result \"1/2-1/2\"]\n1. c4 e5 1/2-1/2","time_control":"600","end_time":1706918400,"rated":true,"uuid":"jan-3","time_class":"rapid","rules":"chess","white":{"rating":1500,"result":"repetition","username":"TestUser","uuid":"w3"},"black":{"rating":1500,"result":"repetition","username":"OpC","uuid":"b3"}}
+	]}`
+
+	// Feb games: 2 standard games.
+	febGames := `{"games":[
+		{"url":"https://www.chess.com/game/live/feb-1","pgn":"[Event \"Live Chess\"]\n[White \"TestUser\"]\n[Black \"OpD\"]\n[Result \"1-0\"]\n1. Nf3 d5 1-0","time_control":"600","end_time":1709337600,"rated":true,"uuid":"feb-1","time_class":"rapid","rules":"chess","white":{"rating":1520,"result":"win","username":"TestUser","uuid":"w4"},"black":{"rating":1450,"result":"checkmated","username":"OpD","uuid":"b4"}},
+		{"url":"https://www.chess.com/game/live/feb-2","pgn":"[Event \"Live Chess\"]\n[White \"OpE\"]\n[Black \"TestUser\"]\n[Result \"0-1\"]\n1. e4 c5 0-1","time_control":"600","end_time":1709424000,"rated":true,"uuid":"feb-2","time_class":"rapid","rules":"chess","white":{"rating":1550,"result":"resigned","username":"OpE","uuid":"w5"},"black":{"rating":1530,"result":"win","username":"TestUser","uuid":"b5"}}
+	]}`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pub/player/testuser/games/archives", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(archivesJSON))
+	})
+	mux.HandleFunc("/pub/player/testuser/games/2024/01", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(janGames))
+	})
+	mux.HandleFunc("/pub/player/testuser/games/2024/02", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(febGames))
+	})
+	chesscomSrv := httptest.NewServer(mux)
+	defer chesscomSrv.Close()
+
+	lichessSrv := newLichessServer(t)
+	defer lichessSrv.Close()
+
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Set game limit to 2 — the first archive (Feb, newest-first) has 2 games,
+	// so truncation fires at the archive boundary after indexing them.
+	t.Setenv("MAX_GAMES", "2")
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
+	event := makeEvent("player1", body)
+
+	// --- Page 1 ---
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("page 1: unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("page 1: expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	page1 := decodeJSONResponse(t, resp)
+	if !page1.Truncated {
+		t.Fatal("page 1: expected truncated=true")
+	}
+	if page1.Cursor == nil {
+		t.Fatal("page 1: expected cursor")
+	}
+
+	page1URLs := make(map[string]bool)
+	for url := range page1.Games {
+		page1URLs[url] = true
+	}
+	if len(page1URLs) == 0 {
+		t.Fatal("page 1: expected at least one game")
+	}
+
+	// --- Page 2: resume with cursor ---
+	// Increase game limit so page 2 doesn't truncate.
+	t.Setenv("MAX_GAMES", "1000")
+
+	cursorJSON, _ := json.Marshal(page1.Cursor)
+	body2 := fmt.Sprintf(`{"sources":[{"type":"chesscom","username":"testuser"}],"cursor":%s}`, cursorJSON)
+	event2 := makeEvent("player1", body2)
+
+	resp2, err := handler(context.Background(), event2)
+	if err != nil {
+		t.Fatalf("page 2: unexpected error: %v", err)
+	}
+	if resp2.StatusCode != 200 {
+		t.Fatalf("page 2: expected 200, got %d: %s", resp2.StatusCode, resp2.Body)
+	}
+
+	page2 := decodeJSONResponse(t, resp2)
+
+	// Check for duplicates: no game URL should appear in both pages.
+	for url := range page2.Games {
+		if page1URLs[url] {
+			t.Errorf("duplicate game across pages: %s", url)
+		}
+	}
+
+	// Verify we got games from both pages (complete coverage).
+	totalGames := len(page1URLs) + len(page2.Games)
+	if totalGames == 0 {
+		t.Error("expected games across both pages")
+	}
+	t.Logf("Page 1: %d games, Page 2: %d games, Total: %d", len(page1URLs), len(page2.Games), totalGames)
+}

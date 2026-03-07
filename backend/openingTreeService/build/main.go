@@ -84,10 +84,11 @@ type BuildResponse struct {
 
 // fetchResult carries either a game or an error from a source fetcher goroutine.
 type fetchResult struct {
-	game game.Game
-	err  error
-	src  Source
-	done bool // true when this source finished iterating all games
+	game             game.Game
+	err              error
+	src              Source
+	done             bool // true when this source finished iterating all games
+	archiveComplete  bool // true when a Chess.com archive boundary was reached
 }
 
 func main() {
@@ -217,6 +218,18 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 					results <- fetchResult{err: err, src: src}
 					return
 				}
+
+				// Forward archive-complete sentinels from Chess.com so the
+				// fan-in loop can defer truncation to archive boundaries.
+				if g.ArchiveComplete {
+					select {
+					case results <- fetchResult{src: src, archiveComplete: true, game: g}:
+					case <-fetchCtx.Done():
+						return
+					}
+					continue
+				}
+
 				select {
 				case results <- fetchResult{game: g, src: src}:
 				case <-fetchCtx.Done():
@@ -253,6 +266,31 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		priorGames = req.Cursor.TotalGames
 	}
 
+	// drainAndBreak cancels in-flight fetches and drains the channel.
+	drainAndBreak := func() {
+		cancelFetch()
+		for range results {
+		}
+	}
+
+	// checkTruncation returns true if the tree exceeds the game limit or
+	// size budget. When true it sets the truncated/gameLimitExceeded flags,
+	// drains the channel, and the caller should break out of the loop.
+	checkTruncation := func() bool {
+		if tree.GameCount() >= maxGames {
+			gameLimitExceeded = true
+			truncated = true
+			drainAndBreak()
+			return true
+		}
+		if measureResponseSize(tree) >= SizeBudget {
+			truncated = true
+			drainAndBreak()
+			return true
+		}
+		return false
+	}
+
 	for r := range results {
 		if r.done {
 			completedSources[sourceKey(r.src)] = true
@@ -272,27 +310,36 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			continue
 		}
 
-		// Hard game ceiling check.
-		if tree.GameCount() >= maxGames {
-			gameLimitExceeded = true
-			truncated = true
-			cancelFetch()
-			for range results {
+		// Chess.com archive-complete sentinel: update the cursor timestamp
+		// to the archive boundary and check truncation. This ensures we
+		// only truncate at archive boundaries so that on resume
+		// FilterArchives cleanly excludes already-processed months.
+		if r.archiveComplete {
+			key := sourceKey(r.src)
+			if !r.game.EndTime.IsZero() {
+				lastTimestamp[key] = r.game.EndTime
 			}
-			break
+			if checkTruncation() {
+				break
+			}
+			continue
 		}
 
-		// Periodic size budget check using actual serialization.
-		// This only fires every sizeCheckInterval games, so the true size
-		// can overshoot SizeBudget by up to one interval's worth of data.
-		// See the sizeCheckInterval comment for why that's safe.
-		if tree.GameCount() > 0 && tree.GameCount()%sizeCheckInterval == 0 {
-			if measureResponseSize(tree) >= SizeBudget {
+		// For Lichess sources, check truncation on every game.
+		// For Chess.com, truncation is deferred to archive boundaries above.
+		if r.src.Type == game.SourceLichess {
+			if tree.GameCount() >= maxGames {
+				gameLimitExceeded = true
 				truncated = true
-				cancelFetch()
-				for range results {
-				}
+				drainAndBreak()
 				break
+			}
+			if tree.GameCount() > 0 && tree.GameCount()%sizeCheckInterval == 0 {
+				if measureResponseSize(tree) >= SizeBudget {
+					truncated = true
+					drainAndBreak()
+					break
+				}
 			}
 		}
 
@@ -301,10 +348,14 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 
 		// Track per-source last timestamp for cursor.
-		key := sourceKey(r.src)
-		if !r.game.EndTime.IsZero() {
-			if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
-				lastTimestamp[key] = r.game.EndTime
+		// For Chess.com, timestamps are set at archive boundaries (above).
+		// For Lichess, track the max EndTime from individual games.
+		if r.src.Type == game.SourceLichess {
+			key := sourceKey(r.src)
+			if !r.game.EndTime.IsZero() {
+				if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
+					lastTimestamp[key] = r.game.EndTime
+				}
 			}
 		}
 	}

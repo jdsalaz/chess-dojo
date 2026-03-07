@@ -33,6 +33,10 @@ const (
 )
 
 // Game is a platform-agnostic representation of a chess game.
+//
+// When ArchiveComplete is true the game is a sentinel marking the end of a
+// Chess.com monthly archive. Only EndTime (set to the start of the next
+// calendar month) is meaningful; the receiver must not index the sentinel.
 type Game struct {
 	PGN           string     `json:"pgn"`
 	PlayerColor   string     `json:"playerColor"`
@@ -46,4 +50,10 @@ type Game struct {
 	URL           string     `json:"url"`
 	Source        SourceType `json:"source"`
 	EndTime       time.Time  `json:"endTime,omitempty"`
+
+	// ArchiveComplete signals that the preceding batch of games from a
+	// Chess.com monthly archive has been fully yielded. EndTime is set to
+	// the first instant of the following month so that FilterArchives with
+	// since=EndTime will exclude the completed archive on resume.
+	ArchiveComplete bool `json:"-"`
 }

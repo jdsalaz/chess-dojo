@@ -367,6 +367,9 @@ func TestGamesIterator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Games iterator error: %v", err)
 		}
+		if g.ArchiveComplete {
+			continue
+		}
 		collected = append(collected, g)
 	}
 
@@ -427,9 +430,14 @@ func TestGamesParallelOrdering(t *testing.T) {
 	}
 
 	var collected []game.Game
+	var archiveCompleteCount int
 	for g, err := range client.Games(context.Background(), "testuser", time.Time{}, time.Time{}, false) {
 		if err != nil {
 			t.Fatalf("Games iterator error: %v", err)
+		}
+		if g.ArchiveComplete {
+			archiveCompleteCount++
+			continue
 		}
 		collected = append(collected, g)
 	}
@@ -437,10 +445,13 @@ func TestGamesParallelOrdering(t *testing.T) {
 	if len(collected) != numArchives {
 		t.Fatalf("expected %d games, got %d", numArchives, len(collected))
 	}
+	if archiveCompleteCount != numArchives {
+		t.Errorf("expected %d archive-complete sentinels, got %d", numArchives, archiveCompleteCount)
+	}
 
-	// Verify newest-first ordering: archive 10 (month 10) should come first.
+	// Verify oldest-first ordering: archive 1 (month 01) should come first.
 	for i, g := range collected {
-		expectedMonth := fmt.Sprintf("%02d", numArchives-i)
+		expectedMonth := fmt.Sprintf("%02d", i+1)
 		expectedURL := fmt.Sprintf("https://www.chess.com/game/live/%s", expectedMonth)
 		if g.URL != expectedURL {
 			t.Errorf("game %d: expected URL %s, got %s", i, expectedURL, g.URL)
