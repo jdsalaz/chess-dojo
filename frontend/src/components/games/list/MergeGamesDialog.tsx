@@ -66,7 +66,6 @@ export function MergeGamesDialog({
                 citeSource,
             });
             request.onSuccess(response.data);
-            onClose();
         } catch (err) {
             request.onFailure(err);
         }
