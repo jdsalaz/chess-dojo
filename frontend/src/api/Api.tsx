@@ -20,7 +20,10 @@ import {
 } from '@jackstenglein/chess-dojo-common/src/database/game';
 import { SubscriptionTier } from '@jackstenglein/chess-dojo-common/src/database/user';
 import { FollowPositionRequest } from '@jackstenglein/chess-dojo-common/src/explorer/follower';
-import { PgnMergeRequest } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
+import {
+    MergeMultipleRequest,
+    PgnMergeRequest,
+} from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import {
     GetPuzzleHistoryRequest,
     NextPuzzleRequest,
@@ -111,6 +114,7 @@ import {
     listGamesForReview,
     markReviewed,
     mergePgn,
+    mergeMultipleGames,
     requestReview,
     updateComment,
     updateGame,
@@ -333,6 +337,8 @@ export function ApiProvider({ children }: { children: ReactNode }) {
                 requestReview(idToken, cohort, id, reviewType),
             markReviewed: (cohort: string, id: string) => markReviewed(idToken, cohort, id),
             mergePgn: (request: PgnMergeRequest) => mergePgn(idToken, request),
+            mergeMultipleGames: (request: MergeMultipleRequest) =>
+                mergeMultipleGames(idToken, request),
 
             getRequirement: (id: string) => getRequirement(idToken, id),
             listRequirements: (cohort: string, scoreboardOnly: boolean, startKey?: string) =>
