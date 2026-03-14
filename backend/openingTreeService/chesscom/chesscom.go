@@ -15,10 +15,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/game"
+	"golang.org/x/sync/errgroup"
 )
 
 const maxConcurrentFetches = 5
@@ -26,7 +26,7 @@ const maxConcurrentFetches = 5
 const (
 	baseURL          = "https://api.chess.com/pub/player"
 	defaultTimeout   = 10 * time.Second
-	defaultUserAgent = "chess-dojo-scheduler (https://github.com/jackstenglein/chess-dojo-scheduler)"
+	defaultUserAgent = "chess-dojo (https://github.com/jackstenglein/chess-dojo)"
 
 	maxRetries     = 3
 	baseRetryDelay = 500 * time.Millisecond
@@ -250,34 +250,20 @@ func (c *Client) GamesByArchive(ctx context.Context, username string, since, unt
 		// Cancel in-flight fetches if we stop early.
 		fetchCtx, cancelFetches := context.WithCancel(ctx)
 
-		// Feed archive indexes into a work channel.
-		work := make(chan int, n)
-		for i := range n {
-			work <- i
-		}
-		close(work)
-
-		// Fixed worker pool pulls from the work channel.
-		var wg sync.WaitGroup
-		for range maxConcurrentFetches {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for idx := range work {
-					if fetchCtx.Err() != nil {
-						slots[idx] <- archiveResult{err: fetchCtx.Err()}
-						continue
-					}
-					games, err := c.FetchGames(fetchCtx, filtered[idx])
-					slots[idx] <- archiveResult{games: games, err: err}
-				}
-			}()
+		g, fetchCtx := errgroup.WithContext(fetchCtx)
+		g.SetLimit(maxConcurrentFetches)
+		for i, archiveURL := range filtered {
+			g.Go(func() error {
+				games, err := c.FetchGames(fetchCtx, archiveURL)
+				slots[i] <- archiveResult{games: games, err: err}
+				return nil
+			})
 		}
 
 		// Ensure all goroutines finish before we return.
 		defer func() {
 			cancelFetches()
-			wg.Wait()
+			g.Wait()
 		}()
 
 		// Drain slots in order (0, 1, 2...) to preserve oldest-first ordering.
