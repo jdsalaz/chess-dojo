@@ -65,6 +65,7 @@ export const MergeMultipleSchema = z.object({
     games: z
         .array(gameKeySchema)
         .min(2)
+        .max(20)
         .refine(
             (games) => {
                 const keys = new Set<string>();
