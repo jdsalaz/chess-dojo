@@ -257,8 +257,14 @@ function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeType) {
             } as DiagramComment;
         } else {
             target.commentDiag.colorArrows.push(...source.commentDiag.colorArrows);
+            const seen = new Set<string>();
             target.commentDiag.colorArrows = target.commentDiag.colorArrows.filter(
-                (arrow, index) => target.commentDiag?.colorArrows?.indexOf(arrow) === index,
+                (arrow) => {
+                    const key = JSON.stringify(arrow);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                },
             );
         }
     }
@@ -271,8 +277,14 @@ function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeType) {
             } as DiagramComment;
         } else {
             target.commentDiag.colorFields.push(...source.commentDiag.colorFields);
+            const seen = new Set<string>();
             target.commentDiag.colorFields = target.commentDiag.colorFields.filter(
-                (arrow, index) => target.commentDiag?.colorFields?.indexOf(arrow) === index,
+                (field) => {
+                    const key = JSON.stringify(field);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                },
             );
         }
     }
