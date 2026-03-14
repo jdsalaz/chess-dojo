@@ -49,3 +49,37 @@ export const PgnMergeSchema = z.object({
 
 /** A request to merge a PGN into a game. */
 export type PgnMergeRequest = z.infer<typeof PgnMergeSchema>;
+
+/** Identifies a game by its cohort and id. */
+const gameKeySchema = z.object({
+    /** The cohort of the game. */
+    cohort: z.string(),
+
+    /** The id of the game. */
+    id: z.string(),
+});
+
+/** Verifies a request to merge multiple games into a single new game. */
+export const MergeMultipleSchema = z.object({
+    /** The games to merge. Must contain at least 2 games. */
+    games: z.array(gameKeySchema).min(2),
+
+    /** Which game's headers to use for the merged game. Must be one of the games in the list. */
+    headerSource: gameKeySchema,
+
+    /** How to handle the comments from the merged games. Defaults to MERGE. */
+    commentMergeType: pgnMergeType
+        .optional()
+        .transform((val) => val || PgnMergeTypes.MERGE),
+
+    /** How to handle the NAGs from the merged games. Defaults to MERGE. */
+    nagMergeType: pgnMergeType.optional().transform((val) => val || PgnMergeTypes.MERGE),
+
+    /** How to handle the drawables from the merged games. Defaults to MERGE. */
+    drawableMergeType: pgnMergeType
+        .optional()
+        .transform((val) => val || PgnMergeTypes.MERGE),
+});
+
+/** A request to merge multiple games into a single new game. */
+export type MergeMultipleRequest = z.infer<typeof MergeMultipleSchema>;
