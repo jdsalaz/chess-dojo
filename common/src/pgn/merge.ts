@@ -61,8 +61,22 @@ const gameKeySchema = z.object({
 
 /** Verifies a request to merge multiple games into a single new game. */
 export const MergeMultipleSchema = z.object({
-    /** The games to merge. Must contain at least 2 games. */
-    games: z.array(gameKeySchema).min(2),
+    /** The games to merge. Must contain at least 2 games with unique cohort/id pairs. */
+    games: z
+        .array(gameKeySchema)
+        .min(2)
+        .refine(
+            (games) => {
+                const keys = new Set<string>();
+                for (const g of games) {
+                    const key = `${g.cohort}/${g.id}`;
+                    if (keys.has(key)) return false;
+                    keys.add(key);
+                }
+                return true;
+            },
+            { message: 'games array must not contain duplicate cohort/id pairs' },
+        ),
 
     /** Which game's headers to use for the merged game. Must be one of the games in the list. */
     headerSource: gameKeySchema,
