@@ -3,7 +3,7 @@
 import { Move } from '@jackstenglein/chess';
 import { PgnMergeTypes } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import { describe, expect, test } from 'vitest';
-import { mergeComments, mergeDrawables, mergeNags } from './mergeMultiple';
+import { mergeComments, mergeDrawables, mergeNags } from './mergeUtils';
 
 /** Creates a minimal Move-shaped object for testing annotation merge helpers. */
 function makeMove(overrides: Partial<Move> = {}): Move {
