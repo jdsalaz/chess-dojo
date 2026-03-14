@@ -1,11 +1,9 @@
 import { GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
-import { Chess, DiagramComment, Move } from '@jackstenglein/chess';
+import { Chess, Move } from '@jackstenglein/chess';
 import {
     PgnMergeRequest,
     PgnMergeSchema,
-    PgnMergeType,
-    PgnMergeTypes,
 } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 import {
@@ -16,6 +14,7 @@ import {
     success,
 } from '../../directoryService/api';
 import { dynamo, gamesTable } from './create';
+import { getPlayer, mergeComments, mergeDrawables, mergeNags } from './mergeUtils';
 import { Game } from './types';
 
 const frontendHost = process.env['frontendHost'];
@@ -185,107 +184,3 @@ function recursiveMergeLine(
     }
 }
 
-/**
- * Returns a display string for the given player/ELO.
- * @param name The name of the player.
- * @param elo The ELO of the player.
- */
-function getPlayer(name: string | undefined, elo: string | undefined): string {
-    let result = name || 'NN';
-    if (elo) {
-        return `${result} (${elo})`;
-    }
-    return result;
-}
-
-/**
- * Merges the comments from the given source move into the target move.
- */
-function mergeComments(source: Move, target: Move, mergeType: PgnMergeType) {
-    if (mergeType === PgnMergeTypes.DISCARD) {
-        return;
-    }
-
-    if (source.commentAfter) {
-        if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentAfter) {
-            target.commentAfter = source.commentAfter;
-        } else {
-            target.commentAfter += `\n\n${source.commentAfter}`;
-        }
-    }
-
-    if (source.commentMove) {
-        if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentMove) {
-            target.commentMove = source.commentMove;
-        } else {
-            target.commentMove += `\n\n${source.commentMove}`;
-        }
-    }
-}
-
-/**
- * Merges the NAGs from the given source move into the target move.
- */
-function mergeNags(source: Move, target: Move, mergeType: PgnMergeType) {
-    if (mergeType === PgnMergeTypes.DISCARD) {
-        return;
-    }
-
-    if (source.nags) {
-        if (mergeType === PgnMergeTypes.OVERWRITE || !target.nags) {
-            target.nags = source.nags;
-        } else {
-            target.nags.push(...source.nags);
-            target.nags = target.nags.filter((nag, index) => target.nags?.indexOf(nag) === index);
-        }
-    }
-}
-
-/**
- * Merges the color arrows and color fields from the given source move into the target move.
- */
-function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeType) {
-    if (mergeType === PgnMergeTypes.DISCARD) {
-        return;
-    }
-
-    if (source.commentDiag?.colorArrows) {
-        if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentDiag?.colorArrows) {
-            target.commentDiag = {
-                ...target.commentDiag,
-                colorArrows: source.commentDiag.colorArrows,
-            } as DiagramComment;
-        } else {
-            target.commentDiag.colorArrows.push(...source.commentDiag.colorArrows);
-            const seen = new Set<string>();
-            target.commentDiag.colorArrows = target.commentDiag.colorArrows.filter(
-                (arrow) => {
-                    const key = JSON.stringify(arrow);
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                },
-            );
-        }
-    }
-
-    if (source.commentDiag?.colorFields) {
-        if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentDiag?.colorFields) {
-            target.commentDiag = {
-                ...target.commentDiag,
-                colorFields: source.commentDiag.colorFields,
-            } as DiagramComment;
-        } else {
-            target.commentDiag.colorFields.push(...source.commentDiag.colorFields);
-            const seen = new Set<string>();
-            target.commentDiag.colorFields = target.commentDiag.colorFields.filter(
-                (field) => {
-                    const key = JSON.stringify(field);
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                },
-            );
-        }
-    }
-}
