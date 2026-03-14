@@ -9,6 +9,8 @@ import { Game } from './types';
 // vi.hoisted runs before vi.mock hoisting, so mockSend is available in the factory
 const { mockSend } = vi.hoisted(() => {
     const mockSend = vi.fn();
+    // Set frontendHost before module import so the module-level const captures it
+    process.env['frontendHost'] = 'https://www.chessdojo.club';
     return { mockSend };
 });
 
@@ -624,5 +626,158 @@ describe('mergeMultiple handler', () => {
 
         const body = JSON.parse((result as any).body);
         assert.equal(body.cohort, '1500-1600');
+    });
+
+    describe('citeSource', () => {
+        test('appends citation comment with player names, ratings, date, and game URL', async () => {
+            const game1 = makeGame({
+                cohort: 'c1',
+                id: 'g1',
+                pgn: '1. e4 *',
+            });
+            const game2 = makeGame({
+                cohort: 'c1',
+                id: 'g2',
+                pgn: `[White "Magnus Carlsen"]
+[WhiteElo "2850"]
+[Black "Ian Nepomniachtchi"]
+[BlackElo "2789"]
+[Date "2024.01.15"]
+
+1. e4 e5 *`,
+            });
+            mockDynamoGames([game1, game2]);
+
+            const event = makeEvent({
+                games: [
+                    { cohort: 'c1', id: 'g1' },
+                    { cohort: 'c1', id: 'g2' },
+                ],
+                headerSource: { cohort: 'c1', id: 'g1' },
+                citeSource: true,
+            });
+
+            const result = await handler(event, {} as any, () => {});
+            assert.equal((result as any).statusCode, 200);
+
+            const putCall = mockSend.mock.calls.find(
+                (call) => call[0].constructor.name === 'PutItemCommand',
+            );
+            const pgn = putCall![0].input.Item.pgn.S as string;
+
+            assert.include(pgn, 'Magnus Carlsen (2850)');
+            assert.include(pgn, 'Ian Nepomniachtchi (2789)');
+            assert.include(pgn, '2024.01.15');
+            assert.include(pgn, 'chessdojo.club/games/c1/g2');
+        });
+
+        test('no citation when citeSource is false', async () => {
+            const game1 = makeGame({
+                cohort: 'c1',
+                id: 'g1',
+                pgn: '1. e4 *',
+            });
+            const game2 = makeGame({
+                cohort: 'c1',
+                id: 'g2',
+                pgn: `[White "Player1"]
+[Black "Player2"]
+
+1. e4 e5 *`,
+            });
+            mockDynamoGames([game1, game2]);
+
+            const event = makeEvent({
+                games: [
+                    { cohort: 'c1', id: 'g1' },
+                    { cohort: 'c1', id: 'g2' },
+                ],
+                headerSource: { cohort: 'c1', id: 'g1' },
+                citeSource: false,
+            });
+
+            const result = await handler(event, {} as any, () => {});
+            assert.equal((result as any).statusCode, 200);
+
+            const putCall = mockSend.mock.calls.find(
+                (call) => call[0].constructor.name === 'PutItemCommand',
+            );
+            const pgn = putCall![0].input.Item.pgn.S as string;
+
+            assert.notInclude(pgn, 'chessdojo.club');
+            assert.notInclude(pgn, 'Player1');
+        });
+
+        test('no citation when citeSource is omitted', async () => {
+            const game1 = makeGame({
+                cohort: 'c1',
+                id: 'g1',
+                pgn: '1. e4 *',
+            });
+            const game2 = makeGame({
+                cohort: 'c1',
+                id: 'g2',
+                pgn: `[White "Player1"]
+[Black "Player2"]
+
+1. e4 e5 *`,
+            });
+            mockDynamoGames([game1, game2]);
+
+            const event = makeEvent({
+                games: [
+                    { cohort: 'c1', id: 'g1' },
+                    { cohort: 'c1', id: 'g2' },
+                ],
+                headerSource: { cohort: 'c1', id: 'g1' },
+                // citeSource not provided
+            });
+
+            const result = await handler(event, {} as any, () => {});
+            assert.equal((result as any).statusCode, 200);
+
+            const putCall = mockSend.mock.calls.find(
+                (call) => call[0].constructor.name === 'PutItemCommand',
+            );
+            const pgn = putCall![0].input.Item.pgn.S as string;
+
+            assert.notInclude(pgn, 'chessdojo.club');
+        });
+
+        test('citation falls back to NN for missing player names and omits rating', async () => {
+            const game1 = makeGame({
+                cohort: 'c1',
+                id: 'g1',
+                pgn: '1. e4 *',
+            });
+            const game2 = makeGame({
+                cohort: 'c1',
+                id: 'g2',
+                // No White/Black/WhiteElo/BlackElo headers
+                pgn: '1. e4 e5 *',
+            });
+            mockDynamoGames([game1, game2]);
+
+            const event = makeEvent({
+                games: [
+                    { cohort: 'c1', id: 'g1' },
+                    { cohort: 'c1', id: 'g2' },
+                ],
+                headerSource: { cohort: 'c1', id: 'g1' },
+                citeSource: true,
+            });
+
+            const result = await handler(event, {} as any, () => {});
+            assert.equal((result as any).statusCode, 200);
+
+            const putCall = mockSend.mock.calls.find(
+                (call) => call[0].constructor.name === 'PutItemCommand',
+            );
+            const pgn = putCall![0].input.Item.pgn.S as string;
+
+            // Should fall back to 'NN' for both players
+            assert.include(pgn, 'NN - NN');
+            assert.include(pgn, 'chessdojo.club/games/c1/g2');
+        });
     });
 });
