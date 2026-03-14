@@ -246,7 +246,7 @@ function getPlayer(name: string | undefined, elo: string | undefined): string {
 /**
  * Merges the comments from the given source move into the target move.
  */
-function mergeComments(source: Move, target: Move, mergeType: PgnMergeType) {
+export function mergeComments(source: Move, target: Move, mergeType: PgnMergeType) {
     if (mergeType === PgnMergeTypes.DISCARD) {
         return;
     }
@@ -271,7 +271,7 @@ function mergeComments(source: Move, target: Move, mergeType: PgnMergeType) {
 /**
  * Merges the NAGs from the given source move into the target move.
  */
-function mergeNags(source: Move, target: Move, mergeType: PgnMergeType) {
+export function mergeNags(source: Move, target: Move, mergeType: PgnMergeType) {
     if (mergeType === PgnMergeTypes.DISCARD) {
         return;
     }
@@ -291,7 +291,7 @@ function mergeNags(source: Move, target: Move, mergeType: PgnMergeType) {
 /**
  * Merges the color arrows and color fields from the given source move into the target move.
  */
-function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeType) {
+export function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeType) {
     if (mergeType === PgnMergeTypes.DISCARD) {
         return;
     }
