@@ -79,6 +79,12 @@ export function MergeGamesDialog({
             return;
         }
         onClose();
+        request.reset();
+        setHeaderSource(0);
+        setCommentMergeType(PgnMergeTypes.MERGE);
+        setNagMergeType(PgnMergeTypes.MERGE);
+        setDrawableMergeType(PgnMergeTypes.MERGE);
+        setCiteSource(true);
     };
 
     return (
