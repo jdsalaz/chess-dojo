@@ -18,6 +18,8 @@ import {
 import { dynamo, gamesTable, success } from './create';
 import { Game } from './types';
 
+const frontendHost = process.env['frontendHost'];
+
 /**
  * Lambda handler that merges multiple games into a single new game.
  * @param event The event that triggered the Lambda.
@@ -71,7 +73,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
             const source = new Chess({ pgn: game.pgn });
             source.seek(null);
 
-            recursiveMergeLine(source.history(), target, null, request);
+            recursiveMergeLine(source.history(), source, target, null, request, game);
         }
 
         // Create a new game with the merged PGN
@@ -171,15 +173,19 @@ async function putGame(game: Game) {
  * Recursively merges the given line into the target Chess instance.
  * Unlike the single-game merge, this does not require matching starting positions.
  * @param line The line to merge into the Chess instance.
+ * @param source The source Chess instance being merged.
  * @param target The target Chess to merge the line into.
  * @param currentTargetMove The current move to start from in the target Chess.
  * @param request The merge options.
+ * @param game The source game, used for citation when citeSource is enabled.
  */
 function recursiveMergeLine(
     line: Move[],
+    source: Chess,
     target: Chess,
     currentTargetMove: Move | null,
     request: MergeMultipleRequest,
+    game: Game,
 ) {
     for (const move of line) {
         const newTargetMove = target.move(move.san, {
@@ -198,11 +204,43 @@ function recursiveMergeLine(
         mergeDrawables(move, newTargetMove, request.drawableMergeType);
 
         for (const variation of move.variations) {
-            recursiveMergeLine(variation, target, currentTargetMove, request);
+            recursiveMergeLine(variation, source, target, currentTargetMove, request, game);
         }
 
         currentTargetMove = newTargetMove;
     }
+
+    if (request.citeSource && currentTargetMove) {
+        const white = getPlayer(
+            source.header().tags.White,
+            source.header().tags.WhiteElo?.value,
+        );
+        const black = getPlayer(
+            source.header().tags.Black,
+            source.header().tags.BlackElo?.value,
+        );
+        const date = source.header().getRawValue('Date');
+        const comment = `[${white} - ${black}${date ? ` ${date}` : ''}](${frontendHost}/games/${game.cohort}/${game.id})`;
+
+        if (currentTargetMove.commentAfter) {
+            currentTargetMove.commentAfter += `\n\n${comment}`;
+        } else {
+            currentTargetMove.commentAfter = comment;
+        }
+    }
+}
+
+/**
+ * Returns a display string for the given player/ELO.
+ * @param name The name of the player.
+ * @param elo The ELO of the player.
+ */
+function getPlayer(name: string | undefined, elo: string | undefined): string {
+    let result = name || 'NN';
+    if (elo) {
+        return `${result} (${elo})`;
+    }
+    return result;
 }
 
 /**

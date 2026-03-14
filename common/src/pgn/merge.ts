@@ -93,6 +93,9 @@ export const MergeMultipleSchema = z.object({
     drawableMergeType: pgnMergeType
         .optional()
         .transform((val) => val || PgnMergeTypes.MERGE),
+
+    /** Whether to cite each source game in a comment at the end of its main line. Defaults to false. */
+    citeSource: z.boolean().optional(),
 });
 
 /** A request to merge multiple games into a single new game. */

@@ -5,10 +5,12 @@ import { PgnMergeType, PgnMergeTypes } from '@jackstenglein/chess-dojo-common/sr
 import { LoadingButton } from '@mui/lab';
 import {
     Button,
+    Checkbox,
     Dialog,
     DialogActions,
     DialogContent,
     DialogTitle,
+    FormControlLabel,
     FormGroup,
     FormLabel,
     ListItemText,
@@ -39,6 +41,7 @@ export function MergeGamesDialog({
     const [commentMergeType, setCommentMergeType] = useState<PgnMergeType>(PgnMergeTypes.MERGE);
     const [nagMergeType, setNagMergeType] = useState<PgnMergeType>(PgnMergeTypes.MERGE);
     const [drawableMergeType, setDrawableMergeType] = useState<PgnMergeType>(PgnMergeTypes.MERGE);
+    const [citeSource, setCiteSource] = useState(true);
 
     const gameLabel = (game: GameInfo) => {
         const white = game.headers?.White || '?';
@@ -59,6 +62,7 @@ export function MergeGamesDialog({
                 commentMergeType,
                 nagMergeType,
                 drawableMergeType,
+                citeSource,
             });
             request.onSuccess(response.data);
             onClose();
@@ -221,6 +225,16 @@ export function MergeGamesDialog({
                                 </TextField>
                             </Stack>
                         </FormGroup>
+
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={citeSource}
+                                    onChange={(e) => setCiteSource(e.target.checked)}
+                                />
+                            }
+                            label='Add source game citation to the end of each merged line'
+                        />
                     </Stack>
                 </DialogContent>
                 <DialogActions>
