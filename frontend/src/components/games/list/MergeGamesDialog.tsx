@@ -241,7 +241,11 @@ export function MergeGamesDialog({
                     <Button onClick={handleClose} disabled={request.isLoading()}>
                         Cancel
                     </Button>
-                    <LoadingButton loading={request.isLoading()} onClick={onMerge}>
+                    <LoadingButton
+                        loading={request.isLoading()}
+                        disabled={games.length < 2}
+                        onClick={onMerge}
+                    >
                         Merge Games
                     </LoadingButton>
                 </DialogActions>
