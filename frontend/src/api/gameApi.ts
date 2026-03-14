@@ -198,6 +198,15 @@ export interface GameApiContextType {
      * @returns The cohort and id of the updated game.
      */
     mergePgn: (request: PgnMergeRequest) => Promise<AxiosResponse<Pick<Game, 'cohort' | 'id'>>>;
+
+    /**
+     * Merges multiple games into a single new game.
+     * @param request The merge-multiple request.
+     * @returns The cohort and id of the newly created game.
+     */
+    mergeMultipleGames: (
+        request: MergeMultipleRequest,
+    ) => Promise<AxiosResponse<Pick<Game, 'cohort' | 'id'>>>;
 }
 
 export interface EditGameResponse {
