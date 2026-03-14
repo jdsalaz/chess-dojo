@@ -98,7 +98,10 @@ test.describe('Merge Games', () => {
         await expect(dialog.getByRole('button', { name: 'Merge Games' })).toBeVisible();
     });
 
-    test('merge button calls API and opens new tab on success', async ({ page, context }) => {
+    test('merge button calls API and shows success snackbar with Open Game action', async ({
+        page,
+        context,
+    }) => {
         await goToMyUploads(page);
 
         const checkboxes = getRowCheckboxes(page);
@@ -114,11 +117,19 @@ test.describe('Merge Games', () => {
             body: { cohort: '1500-1600', id: '2024.01.01_merged-test-game' },
         });
 
-        // Listen for the new tab that will open
-        const newPagePromise = context.waitForEvent('page');
-
         // Click merge
         await dialog.getByRole('button', { name: 'Merge Games' }).click();
+
+        // Verify the success snackbar appears
+        await expect(page.getByText('Games merged successfully')).toBeVisible();
+
+        // Verify the Open Game button is present in the snackbar
+        const openGameButton = page.getByRole('button', { name: 'Open Game' });
+        await expect(openGameButton).toBeVisible();
+
+        // Listen for the new tab that will open when clicking Open Game
+        const newPagePromise = context.waitForEvent('page');
+        await openGameButton.click();
 
         // Verify new tab opens with the merged game URL
         const newPage = await newPagePromise;
