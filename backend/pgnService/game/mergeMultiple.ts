@@ -33,13 +33,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         // Fetch all games
         const games = await fetchGames(request.games);
 
-        // Verify the caller owns all games
+        // Verify the caller can access all games (must be owner or game must be public)
         for (const game of games) {
-            if (game.owner !== userInfo.username) {
+            if (game.owner !== userInfo.username && game.unlisted) {
                 throw new ApiError({
                     statusCode: 403,
                     publicMessage:
-                        'Permission denied: you must be the owner of all games to merge them',
+                        'Permission denied: you can only merge your own games or public games',
                 });
             }
         }
