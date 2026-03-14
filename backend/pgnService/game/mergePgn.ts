@@ -118,7 +118,7 @@ async function updateGame(cohort: string, id: string, pgn: string) {
  * @param request The merge options.
  * @returns The final target PGN.
  */
-function mergePgn(source: Chess, target: Chess, request: PgnMergeRequest): string {
+export function mergePgn(source: Chess, target: Chess, request: PgnMergeRequest): string {
     source.seek(null);
     target.seek(null);
 
