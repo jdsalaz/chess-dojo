@@ -1,4 +1,4 @@
-import { GetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { BatchGetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { Chess, DiagramComment, Move } from '@jackstenglein/chess';
 import {
@@ -108,33 +108,50 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 };
 
 /**
- * Fetches all games with the provided keys from DynamoDB.
+ * Fetches all games with the provided keys from DynamoDB using BatchGetItem.
  * @param gameKeys The cohort/id pairs to fetch.
  * @returns The fetched games.
  */
 async function fetchGames(
     gameKeys: { cohort: string; id: string }[],
 ): Promise<Game[]> {
-    return Promise.all(
-        gameKeys.map(async ({ cohort, id }) => {
-            const response = await dynamo.send(
-                new GetItemCommand({
-                    Key: {
-                        cohort: { S: cohort },
-                        id: { S: id },
+    const games: Game[] = [];
+    let keys: Record<string, { S: string }>[] = gameKeys.map(({ cohort, id }) => ({
+        cohort: { S: cohort },
+        id: { S: id },
+    }));
+
+    while (keys.length > 0) {
+        const response = await dynamo.send(
+            new BatchGetItemCommand({
+                RequestItems: {
+                    [gamesTable]: {
+                        Keys: keys,
                     },
-                    TableName: gamesTable,
-                }),
-            );
-            if (!response.Item) {
-                throw new ApiError({
-                    statusCode: 404,
-                    publicMessage: `Game ${cohort}/${id} not found`,
-                });
-            }
-            return unmarshall(response.Item) as Game;
-        }),
-    );
+                },
+            }),
+        );
+
+        const items = response.Responses?.[gamesTable] ?? [];
+        for (const item of items) {
+            games.push(unmarshall(item) as Game);
+        }
+
+        keys = (response.UnprocessedKeys?.[gamesTable]?.Keys ?? []) as typeof keys;
+    }
+
+    if (games.length !== gameKeys.length) {
+        const foundKeys = new Set(games.map((g) => `${g.cohort}/${g.id}`));
+        const missing = gameKeys.find(
+            ({ cohort, id }) => !foundKeys.has(`${cohort}/${id}`),
+        );
+        throw new ApiError({
+            statusCode: 404,
+            publicMessage: `Game ${missing?.cohort}/${missing?.id} not found`,
+        });
+    }
+
+    return games;
 }
 
 /**
