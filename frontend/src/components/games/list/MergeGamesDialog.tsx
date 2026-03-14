@@ -15,6 +15,7 @@ import {
     FormLabel,
     ListItemText,
     MenuItem,
+    Snackbar,
     Stack,
     TextField,
     Typography,
@@ -66,12 +67,15 @@ export function MergeGamesDialog({
             });
             request.onSuccess(response.data);
             onClose();
-            const cohort = response.data.cohort.replaceAll('+', '%2B');
-            const id = response.data.id.replaceAll('?', '%3F');
-            window.open(`/games/${cohort}/${id}`, '_blank');
         } catch (err) {
             request.onFailure(err);
         }
+    };
+
+    const onOpenGame = () => {
+        const cohort = request.data?.cohort.replaceAll('+', '%2B');
+        const id = request.data?.id.replaceAll('?', '%3F');
+        window.open(`/games/${cohort}/${id}`, '_blank');
     };
 
     const handleClose = () => {
@@ -90,6 +94,24 @@ export function MergeGamesDialog({
     return (
         <>
             <RequestSnackbar request={request} />
+
+            <Snackbar
+                open={!!request.data}
+                autoHideDuration={6000}
+                onClose={request.reset}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                message='Games merged successfully'
+                action={
+                    <Button
+                        onClick={onOpenGame}
+                        color='secondary'
+                        size='small'
+                        sx={{ fontWeight: 'bold' }}
+                    >
+                        Open Game
+                    </Button>
+                }
+            />
 
             <Dialog open onClose={handleClose} fullWidth maxWidth='sm'>
                 <DialogTitle>Merge {games.length} Games</DialogTitle>
