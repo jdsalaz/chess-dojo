@@ -115,7 +115,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 async function fetchGames(
     gameKeys: { cohort: string; id: string }[],
 ): Promise<Game[]> {
-    const results = await Promise.allSettled(
+    return Promise.all(
         gameKeys.map(async ({ cohort, id }) => {
             const response = await dynamo.send(
                 new GetItemCommand({
@@ -135,15 +135,6 @@ async function fetchGames(
             return unmarshall(response.Item) as Game;
         }),
     );
-
-    const games: Game[] = [];
-    for (const result of results) {
-        if (result.status === 'rejected') {
-            throw result.reason;
-        }
-        games.push(result.value);
-    }
-    return games;
 }
 
 /**
