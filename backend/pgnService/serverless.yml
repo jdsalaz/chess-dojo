@@ -317,6 +317,7 @@ functions:
       - Effect: Allow
         Action:
           - dynamodb:GetItem
+          - dynamodb:BatchGetItem
           - dynamodb:PutItem
         Resource:
           - ${param:GamesTableArn}
