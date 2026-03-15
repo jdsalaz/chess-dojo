@@ -3,7 +3,7 @@
 import { Move } from '@jackstenglein/chess';
 import { PgnMergeTypes } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import { describe, expect, test } from 'vitest';
-import { mergeComments, mergeDrawables, mergeNags } from './mergeUtils';
+import { getPlayer, mergeComments, mergeDrawables, mergeNags } from './mergeUtils';
 
 /** Creates a minimal Move-shaped object for testing annotation merge helpers. */
 function makeMove(overrides: Partial<Move> = {}): Move {
@@ -28,6 +28,32 @@ function makeMove(overrides: Partial<Move> = {}): Move {
         ...overrides,
     } as Move;
 }
+
+describe('getPlayer', () => {
+    test('returns name and elo when both provided', () => {
+        expect(getPlayer('Magnus Carlsen', '2850')).toBe('Magnus Carlsen (2850)');
+    });
+
+    test('returns name only when elo is undefined', () => {
+        expect(getPlayer('Magnus Carlsen', undefined)).toBe('Magnus Carlsen');
+    });
+
+    test('returns NN with elo when name is undefined', () => {
+        expect(getPlayer(undefined, '2850')).toBe('NN (2850)');
+    });
+
+    test('returns NN when both are undefined', () => {
+        expect(getPlayer(undefined, undefined)).toBe('NN');
+    });
+
+    test('returns NN when name is empty string', () => {
+        expect(getPlayer('', undefined)).toBe('NN');
+    });
+
+    test('returns NN with elo when name is empty string', () => {
+        expect(getPlayer('', '2850')).toBe('NN (2850)');
+    });
+});
 
 describe('mergeComments', () => {
     test('DISCARD does nothing', () => {
