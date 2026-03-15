@@ -57,6 +57,40 @@ describe('mergePgn', () => {
         );
     });
 
+    test('empty source is a no-op', () => {
+        const target = new Chess({ pgn: '1. e4 e5 2. Nf3 *' });
+        const source = new Chess({ pgn: '*' });
+
+        const result = mergePgn(source, target, makeRequest());
+
+        const merged = new Chess({ pgn: result });
+        merged.seek(null);
+        const history = merged.history();
+        assert.equal(history.length, 3);
+        assert.equal(history[0].san, 'e4');
+        assert.equal(history[1].san, 'e5');
+        assert.equal(history[2].san, 'Nf3');
+    });
+
+    test('nested variations in source are merged recursively', () => {
+        // Source has nested variations: 1. e4 (1. d4 (1. c4))
+        // After merge, d4 and c4 both become variations on move 1
+        const source = new Chess({ pgn: '1. e4 (1. d4 (1. c4)) *' });
+        const target = new Chess({ pgn: '*' });
+
+        const result = mergePgn(source, target, makeRequest());
+
+        const merged = new Chess({ pgn: result });
+        merged.seek(null);
+        const history = merged.history();
+        // Main line should be e4
+        assert.equal(history[0].san, 'e4');
+        // Both d4 and c4 should appear as variations on e4
+        const variationSans = history[0].variations.map((v) => v[0]?.san);
+        assert.include(variationSans, 'd4', 'd4 should be a variation');
+        assert.include(variationSans, 'c4', 'c4 should be a variation');
+    });
+
     test('FEN mismatch throws 400', () => {
         const target = new Chess({ pgn: '1. e4 *' });
         const source = new Chess({
