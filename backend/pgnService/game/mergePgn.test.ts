@@ -72,9 +72,9 @@ describe('mergePgn', () => {
         assert.equal(history[2].san, 'Nf3');
     });
 
-    test('nested variations in source are merged recursively', () => {
+    test('nested source variations are flattened into sibling variations', () => {
         // Source has nested variations: 1. e4 (1. d4 (1. c4))
-        // After merge, d4 and c4 both become variations on move 1
+        // After merge, d4 and c4 both become sibling variations on move 1
         const source = new Chess({ pgn: '1. e4 (1. d4 (1. c4)) *' });
         const target = new Chess({ pgn: '*' });
 
