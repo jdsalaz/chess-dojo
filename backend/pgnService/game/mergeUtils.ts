@@ -39,7 +39,7 @@ export function mergeNags(source: Move, target: Move, mergeType: PgnMergeType) {
 
     if (source.nags) {
         if (mergeType === PgnMergeTypes.OVERWRITE || !target.nags) {
-            target.nags = source.nags;
+            target.nags = [...source.nags];
         } else {
             target.nags.push(...source.nags);
             target.nags = target.nags.filter(
@@ -61,7 +61,7 @@ export function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeTy
         if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentDiag?.colorArrows) {
             target.commentDiag = {
                 ...target.commentDiag,
-                colorArrows: source.commentDiag.colorArrows,
+                colorArrows: [...source.commentDiag.colorArrows],
             } as DiagramComment;
         } else {
             target.commentDiag.colorArrows.push(...source.commentDiag.colorArrows);
@@ -81,7 +81,7 @@ export function mergeDrawables(source: Move, target: Move, mergeType: PgnMergeTy
         if (mergeType === PgnMergeTypes.OVERWRITE || !target.commentDiag?.colorFields) {
             target.commentDiag = {
                 ...target.commentDiag,
-                colorFields: source.commentDiag.colorFields,
+                colorFields: [...source.commentDiag.colorFields],
             } as DiagramComment;
         } else {
             target.commentDiag.colorFields.push(...source.commentDiag.colorFields);
