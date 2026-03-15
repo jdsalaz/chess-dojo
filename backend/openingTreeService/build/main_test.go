@@ -1118,7 +1118,7 @@ func TestMeasureResponseSize_UnderBudget(t *testing.T) {
 			URL:           fmt.Sprintf("https://example.com/game/%d", i),
 			PGN:           pgn,
 			Result:        results[i%len(results)],
-			Source:        game.SourceChessCom,
+			Source:        game.SourceChesscom,
 			WhiteUsername: fmt.Sprintf("Player%d", i%100),
 			BlackUsername: fmt.Sprintf("Opponent%d", i%100),
 			WhiteRating:   1500,

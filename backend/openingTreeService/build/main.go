@@ -169,7 +169,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			return api.Failure(errors.New(400, "Invalid request: source username contains invalid characters", "")), nil
 		}
 		switch src.Type {
-		case game.SourceChessCom, game.SourceLichess:
+		case game.SourceChesscom, game.SourceLichess:
 		default:
 			return api.Failure(errors.New(400, "Invalid request: source type must be 'chesscom' or 'lichess'", "")), nil
 		}
@@ -234,7 +234,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			}
 
 			switch src.Type {
-			case game.SourceChessCom:
+			case game.SourceChesscom:
 				var client *chesscom.Client
 				if httpClient != nil {
 					client = chesscom.NewClientWithHTTP(httpClient)

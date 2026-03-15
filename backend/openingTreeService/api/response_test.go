@@ -30,7 +30,7 @@ func TestFromOpeningTree_PositionsSerialization(t *testing.T) {
 	g := &game.Game{
 		URL:           "https://example.com/game1",
 		Result:        game.ResultWhite,
-		Source:        game.SourceChessCom,
+		Source:        game.SourceChesscom,
 		PlayerColor:   "white",
 		WhiteUsername:  "alice",
 		BlackUsername:  "bob",
@@ -145,11 +145,11 @@ func TestFromOpeningTree_MoveDataSerialization(t *testing.T) {
 
 	// Index two games: one with 1. e4, one with 1. d4.
 	g1 := &game.Game{
-		URL: "g1", Result: game.ResultWhite, Source: game.SourceChessCom,
+		URL: "g1", Result: game.ResultWhite, Source: game.SourceChesscom,
 		PGN: "[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0",
 	}
 	g2 := &game.Game{
-		URL: "g2", Result: game.ResultBlack, Source: game.SourceChessCom,
+		URL: "g2", Result: game.ResultBlack, Source: game.SourceChesscom,
 		PGN: "[Result \"0-1\"]\n\n1. d4 d5 2. c4 e6 0-1",
 	}
 	if _, err := tree.IndexGame(g1); err != nil {
@@ -189,7 +189,7 @@ func TestFromOpeningTree_JSONFieldNames(t *testing.T) {
 	g := &game.Game{
 		URL:           "https://example.com/g",
 		Result:        game.ResultDraw,
-		Source:        game.SourceChessCom,
+		Source:        game.SourceChesscom,
 		PlayerColor:   "black",
 		WhiteUsername:  "w",
 		BlackUsername:  "b",
@@ -305,7 +305,7 @@ func TestFromOpeningTree_GamesAsArrayNotObject(t *testing.T) {
 	tree := openingtree.New()
 
 	g := &game.Game{
-		URL: "url1", Result: game.ResultWhite, Source: game.SourceChessCom,
+		URL: "url1", Result: game.ResultWhite, Source: game.SourceChesscom,
 		PGN: "[Result \"1-0\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0",
 	}
 	if _, err := tree.IndexGame(g); err != nil {
