@@ -50,11 +50,11 @@ describe('mergePgn', () => {
         const history = merged.history();
         // Main line should still be e4 e5 Nf3
         assert.equal(history[2].san, 'Nf3');
-        // Bc4 should appear as a variation after e5
-        const hasVariation =
-            history[2].variations.length > 0 ||
-            history[1].variations?.some((v) => v.some((m) => m.san === 'Bc4'));
-        assert.isTrue(hasVariation, 'Bc4 should appear as a variation');
+        // Bc4 should appear as a variation on Nf3
+        assert.isTrue(
+            history[2].variations.some((v) => v.some((m) => m.san === 'Bc4')),
+            'Bc4 should appear as a variation on Nf3',
+        );
     });
 
     test('FEN mismatch throws 400', () => {
