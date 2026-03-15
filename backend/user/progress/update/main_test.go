@@ -7,12 +7,225 @@ import (
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/database"
 )
 
+func TestCheckMilestoneNotification(t *testing.T) {
+	table := []struct {
+		name             string
+		user             *database.User
+		requirements     []*database.Requirement
+		wantNotifyCalled bool
+		wantPersistKey   string
+	}{
+		{
+			name: "NilUser",
+		},
+		{
+			name: "InvalidCohort",
+			user: &database.User{
+				DojoCohort: "invalid",
+			},
+		},
+		{
+			name: "AlreadyNotified",
+			user: &database.User{
+				Username:                   "test-user",
+				DojoCohort:                 "1400-1500",
+				SentMilestoneNotifications: []string{"85_1400-1500"},
+			},
+		},
+		{
+			name: "BelowThreshold",
+			user: &database.User{
+				Username:   "test-user",
+				DojoCohort: "1400-1500",
+				Progress: map[string]*database.RequirementProgress{
+					"req1": {
+						RequirementId: "req1",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 40},
+					},
+				},
+			},
+			requirements: []*database.Requirement{
+				{
+					Id:        "req1",
+					Counts:    map[database.DojoCohort]int{"1400-1500": 100},
+					UnitScore: 1,
+				},
+			},
+		},
+		{
+			name: "ExactlyAtThreshold",
+			user: &database.User{
+				Username:    "test-user",
+				DisplayName: "Test Player",
+				DojoCohort:  "1400-1500",
+				Progress: map[string]*database.RequirementProgress{
+					"req1": {
+						RequirementId: "req1",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 85},
+					},
+				},
+			},
+			requirements: []*database.Requirement{
+				{
+					Id:        "req1",
+					Counts:    map[database.DojoCohort]int{"1400-1500": 100},
+					UnitScore: 1,
+				},
+			},
+			wantNotifyCalled: true,
+			wantPersistKey:   "85_1400-1500",
+		},
+		{
+			name: "AboveThreshold",
+			user: &database.User{
+				Username:    "test-user",
+				DisplayName: "Test Player",
+				DojoCohort:  "1400-1500",
+				Progress: map[string]*database.RequirementProgress{
+					"req1": {
+						RequirementId: "req1",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 95},
+					},
+				},
+			},
+			requirements: []*database.Requirement{
+				{
+					Id:        "req1",
+					Counts:    map[database.DojoCohort]int{"1400-1500": 100},
+					UnitScore: 1,
+				},
+			},
+			wantNotifyCalled: true,
+			wantPersistKey:   "85_1400-1500",
+		},
+		{
+			name: "MultipleRequirementsAtThreshold",
+			user: &database.User{
+				Username:    "test-user",
+				DisplayName: "Test Player",
+				DojoCohort:  "1400-1500",
+				Progress: map[string]*database.RequirementProgress{
+					"req1": {
+						RequirementId: "req1",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 10},
+					},
+					"req2": {
+						RequirementId: "req2",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 7},
+					},
+				},
+			},
+			requirements: []*database.Requirement{
+				{
+					Id:        "req1",
+					Counts:    map[database.DojoCohort]int{"1400-1500": 10},
+					UnitScore: 1,
+				},
+				{
+					Id:        "req2",
+					Counts:    map[database.DojoCohort]int{"1400-1500": 10},
+					UnitScore: 1,
+				},
+			},
+			wantNotifyCalled: true,
+			wantPersistKey:   "85_1400-1500",
+		},
+		{
+			name: "DifferentCohortNotificationNotBlocked",
+			user: &database.User{
+				Username:                   "test-user",
+				DisplayName:               "Test Player",
+				DojoCohort:                 "1500-1600",
+				SentMilestoneNotifications: []string{"85_1400-1500"},
+				Progress: map[string]*database.RequirementProgress{
+					"req1": {
+						RequirementId: "req1",
+						Counts:        map[database.DojoCohort]int{database.AllCohorts: 90},
+					},
+				},
+			},
+			requirements: []*database.Requirement{
+				{
+					Id:        "req1",
+					Counts:    map[database.DojoCohort]int{"1500-1600": 100},
+					UnitScore: 1,
+				},
+			},
+			wantNotifyCalled: true,
+			wantPersistKey:   "85_1500-1600",
+		},
+	}
+
+	for _, tc := range table {
+		t.Run(tc.name, func(t *testing.T) {
+			notifyCalled := false
+			var notifyUser *database.User
+			var notifyPercent int
+
+			persistCalled := false
+			var persistUsername string
+			var persistKey string
+
+			mc := milestoneChecker{
+				notifySenseis: func(user *database.User, percent int) error {
+					notifyCalled = true
+					notifyUser = user
+					notifyPercent = percent
+					return nil
+				},
+				recordMilestone: func(username string, milestoneKey string) error {
+					persistCalled = true
+					persistUsername = username
+					persistKey = milestoneKey
+					return nil
+				},
+				listRequirements: func(cohort database.DojoCohort, scoreboardOnly bool, startKey string) ([]*database.Requirement, string, error) {
+					return tc.requirements, "", nil
+				},
+			}
+
+			mc.checkNotification(tc.user)
+
+			if notifyCalled != tc.wantNotifyCalled {
+				t.Errorf("notifyCalled = %v; want %v", notifyCalled, tc.wantNotifyCalled)
+			}
+			if tc.wantNotifyCalled {
+				if notifyUser != tc.user {
+					t.Errorf("notifyUser = %v; want %v", notifyUser, tc.user)
+				}
+				if notifyPercent != milestoneThreshold {
+					t.Errorf("notifyPercent = %d; want %d", notifyPercent, milestoneThreshold)
+				}
+			}
+
+			if persistCalled != tc.wantNotifyCalled {
+				t.Errorf("persistCalled = %v; want %v", persistCalled, tc.wantNotifyCalled)
+			}
+			if tc.wantPersistKey != "" {
+				if persistUsername != tc.user.Username {
+					t.Errorf("persistUsername = %s; want %s", persistUsername, tc.user.Username)
+				}
+				if persistKey != tc.wantPersistKey {
+					t.Errorf("persistKey = %s; want %s", persistKey, tc.wantPersistKey)
+				}
+			}
+		})
+	}
+}
+
+
 func TestCheckNotification_NotifySenseisError_RecordMilestoneNotCalled(t *testing.T) {
 	recordMilestoneCalled := false
 
 	mc := milestoneChecker{
 		listRequirements: func(cohort database.DojoCohort, scoreboardOnly bool, startKey string) ([]*database.Requirement, string, error) {
-			return []*database.Requirement{}, "", nil
+			return []*database.Requirement{
+				{
+					Id:     "test-req",
+					Status: database.Active,
+					Counts: map[database.DojoCohort]int{"0-300": 1},
+				},
+			}, "", nil
 		},
 		notifySenseis: func(user *database.User, percent int) error {
 			return errors.New("discord unavailable")
@@ -24,35 +237,12 @@ func TestCheckNotification_NotifySenseisError_RecordMilestoneNotCalled(t *testin
 	}
 
 	user := &database.User{
-		Username:  "testuser",
+		Username:   "testuser",
 		DojoCohort: database.DojoCohort("0-300"),
-		// No SentMilestoneNotifications, so milestone check will proceed
-	}
-
-	// GetPercentComplete with empty requirements and empty progress returns 0,
-	// which is below threshold. We need to ensure the user reaches the threshold.
-	// With no requirements, totalScore is 0, so GetPercentComplete returns 0.
-	// We need at least one requirement the user has completed fully.
-	// Instead, let's mock listRequirements to return a requirement that the user
-	// has 100% progress on.
-
-	req := &database.Requirement{
-		Id:     "test-req",
-		Status: database.Active,
-		Counts: map[database.DojoCohort]int{
-			"0-300": 1,
-		},
-	}
-
-	mc.listRequirements = func(cohort database.DojoCohort, scoreboardOnly bool, startKey string) ([]*database.Requirement, string, error) {
-		return []*database.Requirement{req}, "", nil
-	}
-
-	user.Progress = map[string]*database.RequirementProgress{
-		"test-req": {
-			RequirementId: "test-req",
-			Counts: map[database.DojoCohort]int{
-				"0-300": 1,
+		Progress: map[string]*database.RequirementProgress{
+			"test-req": {
+				RequirementId: "test-req",
+				Counts:        map[database.DojoCohort]int{"0-300": 1},
 			},
 		},
 	}
@@ -87,7 +277,6 @@ func TestCheckNotification_FetchRequirementsError_BailsOutCleanly(t *testing.T) 
 		DojoCohort: database.DojoCohort("0-300"),
 	}
 
-	// Should not panic
 	mc.checkNotification(user)
 
 	if notifySenseisCalled {
@@ -112,7 +301,6 @@ func TestCheckNotification_PartialSenseiFailure_ErrorPropagation(t *testing.T) {
 			}, "", nil
 		},
 		notifySenseis: func(user *database.User, percent int) error {
-			// Simulate partial failure: some DMs sent, some failed
 			return errors.New("failed to send DM to 2 of 5 senseis")
 		},
 		recordMilestone: func(username string, milestoneKey string) error {
@@ -137,51 +325,6 @@ func TestCheckNotification_PartialSenseiFailure_ErrorPropagation(t *testing.T) {
 	if recordMilestoneCalled {
 		t.Error("recordMilestone should NOT be called when notifySenseis returns a partial failure error")
 	}
-}
-
-func TestCheckNotification_NilUser(t *testing.T) {
-	mc := milestoneChecker{
-		listRequirements: func(cohort database.DojoCohort, scoreboardOnly bool, startKey string) ([]*database.Requirement, string, error) {
-			t.Error("listRequirements should not be called for nil user")
-			return nil, "", nil
-		},
-		notifySenseis: func(user *database.User, percent int) error {
-			t.Error("notifySenseis should not be called for nil user")
-			return nil
-		},
-		recordMilestone: func(username string, milestoneKey string) error {
-			t.Error("recordMilestone should not be called for nil user")
-			return nil
-		},
-	}
-
-	// Should not panic
-	mc.checkNotification(nil)
-}
-
-func TestCheckNotification_AlreadySentMilestone(t *testing.T) {
-	mc := milestoneChecker{
-		listRequirements: func(cohort database.DojoCohort, scoreboardOnly bool, startKey string) ([]*database.Requirement, string, error) {
-			t.Error("listRequirements should not be called when milestone already sent")
-			return nil, "", nil
-		},
-		notifySenseis: func(user *database.User, percent int) error {
-			t.Error("notifySenseis should not be called when milestone already sent")
-			return nil
-		},
-		recordMilestone: func(username string, milestoneKey string) error {
-			t.Error("recordMilestone should not be called when milestone already sent")
-			return nil
-		},
-	}
-
-	user := &database.User{
-		Username:                   "testuser",
-		DojoCohort:                 database.DojoCohort("0-300"),
-		SentMilestoneNotifications: []string{"85_0-300"},
-	}
-
-	mc.checkNotification(user)
 }
 
 func TestFetchAllRequirements_ErrorOnFirstPage(t *testing.T) {
@@ -251,6 +394,5 @@ func TestCheckNotification_RecordMilestoneError_DoesNotPanic(t *testing.T) {
 		},
 	}
 
-	// Should not panic even when recordMilestone fails
 	mc.checkNotification(user)
 }

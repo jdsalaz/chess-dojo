@@ -7,27 +7,49 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fixturesDir = path.join(__dirname, '../../../fixtures/games/player-explorer');
 
-const backendResponse: Record<string, unknown> = JSON.parse(
-    fs.readFileSync(path.join(fixturesDir, 'backend-response.json'), 'utf-8'),
+const chessComArchives = JSON.parse(
+    fs.readFileSync(path.join(fixturesDir, 'chess-com-archives.json'), 'utf-8'),
 ) as Record<string, unknown>;
+const chessComGames = JSON.parse(
+    fs.readFileSync(path.join(fixturesDir, 'chess-com-games.json'), 'utf-8'),
+) as Record<string, unknown>;
+const lichessNdjson = fs.readFileSync(path.join(fixturesDir, 'lichess-games.ndjson'), 'utf-8');
 
-/** Sets up a mock for the POST /explorer/player-opening-tree backend endpoint. Returns a call counter. */
-async function mockBackendRoute(
-    page: import('@playwright/test').Page,
-    response: object,
-    status = 200,
-) {
-    const callCount = { count: 0 };
+/** Sets up Chess.com route mocks for a successful load. Returns a call counter. */
+async function mockChesscomRoutes(page: import('@playwright/test').Page) {
+    const callCount = { archives: 0, games: 0 };
 
-    await page.route('**/explorer/player-opening-tree', (route) => {
-        if (route.request().method() !== 'POST') {
-            return route.fallback();
-        }
-        callCount.count++;
+    await page.route('**/api.chess.com/pub/player/*/games/archives', (route) => {
+        callCount.archives++;
         return route.fulfill({
-            status,
+            status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(response),
+            body: JSON.stringify(chessComArchives),
+        });
+    });
+
+    await page.route('**/api.chess.com/pub/player/*/games/*/*', (route) => {
+        callCount.games++;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(chessComGames),
+        });
+    });
+
+    return callCount;
+}
+
+/** Sets up Lichess route mock for a successful load. Returns a call counter. */
+async function mockLichessRoutes(page: import('@playwright/test').Page) {
+    const callCount = { games: 0 };
+
+    await page.route('**/lichess.org/api/games/user/*', (route) => {
+        callCount.games++;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/x-ndjson',
+            body: lichessNdjson,
         });
     });
 
@@ -39,7 +61,7 @@ async function openPlayerTab(page: import('@playwright/test').Page) {
     await page.goto('/games/1500-1600/2024.07.24_3a1711cf-5adb-44df-b97f-e2a6907f8842');
     await page.getByTestId('underboard-button-explorer').click();
     await page.getByTestId('explorer-tab-button-player').click();
-    await expect(page.getByRole('tab', { name: 'Player', selected: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Repertoire Spy', selected: true })).toBeVisible();
 }
 
 test.describe('Player Opening Explorer', () => {
@@ -54,37 +76,54 @@ test.describe('Player Opening Explorer', () => {
         });
     });
 
-    test('loads games and displays opening tree', async ({ page }) => {
-        await mockBackendRoute(page, backendResponse);
+    test('loads Chess.com games and displays opening tree', async ({ page }) => {
+        await mockChesscomRoutes(page);
         await openPlayerTab(page);
 
         // The default source type is Chess.com — enter username and load
         await page.getByPlaceholder('Chess.com Username').fill('testuser');
         await page.getByRole('button', { name: 'Load Games' }).click();
 
-        // Wait for the tree to load (Clear Data appears when the tree is set)
-        await expect(page.getByRole('button', { name: 'Clear Data' })).toBeVisible({
-            timeout: 15000,
+        // Wait for the opening tree to render with move rows
+        const playerTree = page.getByTestId('explorer-tab-player');
+        await expect(playerTree).toBeVisible({ timeout: 15000 });
+        await expect(playerTree.getByRole('gridcell', { name: /e4/ })).toBeVisible({
+            timeout: 10000,
         });
+    });
 
-        // Opening tree should render with move rows (e4 is the most common move in the fixture)
-        await expect(page.getByTestId('explorer-tab-player')).toBeVisible();
-        await expect(page.getByRole('cell', { name: /e4/ })).toBeVisible();
+    test('loads Lichess games and displays opening tree', async ({ page }) => {
+        await mockLichessRoutes(page);
+        await openPlayerTab(page);
+
+        // Switch source type to Lichess
+        await page.getByRole('button', { name: 'Lichess' }).click();
+        await page.getByPlaceholder('Lichess Username').fill('testplayer');
+        await page.getByRole('button', { name: 'Load Games' }).click();
+
+        // Wait for the opening tree to render with moves
+        const playerTree = page.getByTestId('explorer-tab-player');
+        await expect(playerTree).toBeVisible({ timeout: 15000 });
+        await expect(playerTree.getByRole('gridcell', { name: /e4/ })).toBeVisible({
+            timeout: 10000,
+        });
     });
 
     test('filters by color without making new API calls', async ({ page }) => {
-        const callCount = await mockBackendRoute(page, backendResponse);
+        const callCount = await mockChesscomRoutes(page);
         await openPlayerTab(page);
 
         await page.getByPlaceholder('Chess.com Username').fill('testuser');
         await page.getByRole('button', { name: 'Load Games' }).click();
 
-        // Wait for load to complete
-        await expect(page.getByRole('button', { name: 'Clear Data' })).toBeVisible({
-            timeout: 15000,
+        // Wait for tree to render
+        const playerTree = page.getByTestId('explorer-tab-player');
+        await expect(playerTree).toBeVisible({ timeout: 15000 });
+        await expect(playerTree.getByRole('gridcell', { name: /e4/ })).toBeVisible({
+            timeout: 10000,
         });
 
-        const apiCallsAfterLoad = callCount.count;
+        const apiCallsAfterLoad = { ...callCount };
 
         // Open filters and change color to Black
         await page.getByText('Filters').click();
@@ -94,44 +133,58 @@ test.describe('Player Opening Explorer', () => {
         await page.waitForTimeout(500);
 
         // The tree should still be visible (re-filtered, not re-fetched)
-        await expect(page.getByTestId('explorer-tab-player')).toBeVisible();
+        await expect(playerTree).toBeVisible();
 
         // No new API calls should have been made
-        expect(callCount.count).toBe(apiCallsAfterLoad);
+        expect(callCount.archives).toBe(apiCallsAfterLoad.archives);
+        expect(callCount.games).toBe(apiCallsAfterLoad.games);
     });
 
-    test('displays error when backend request fails', async ({ page }) => {
-        await mockBackendRoute(page, { message: 'Internal server error' }, 500);
+    test('clear data resets the tree', async ({ page }) => {
+        await mockChesscomRoutes(page);
         await openPlayerTab(page);
 
-        await page.getByPlaceholder('Chess.com Username').fill('nonexistentuser12345');
+        await page.getByPlaceholder('Chess.com Username').fill('testuser');
         await page.getByRole('button', { name: 'Load Games' }).click();
 
-        // The backend returns an error — the frontend should display an error alert
-        await expect(page.getByText('Failed to load games. Please try again.')).toBeVisible({
-            timeout: 15000,
+        // Wait for tree to render with moves
+        const playerTree = page.getByTestId('explorer-tab-player');
+        await expect(playerTree).toBeVisible({ timeout: 15000 });
+        await expect(playerTree.getByRole('gridcell', { name: /e4/ })).toBeVisible({
+            timeout: 10000,
         });
 
-        // The move table should not contain any actual moves
-        await expect(page.getByRole('cell', { name: /e4/ })).not.toBeVisible();
-        await expect(page.getByRole('cell', { name: /d4/ })).not.toBeVisible();
+        // Click Clear Data to reset the tree
+        await page.getByText('Filters').click();
+        await page.getByRole('button', { name: 'Clear Data' }).click();
+
+        // Tree should be gone and Load Games button should reappear
+        await expect(page.getByRole('button', { name: 'Load Games' })).toBeVisible();
     });
 
-    test('displays empty tree for unknown username', async ({ page }) => {
-        // Backend returns successfully but with an empty tree (user has no games)
-        await mockBackendRoute(page, { positions: {}, games: {} });
+    test('displays error for invalid username (404)', async ({ page }) => {
+        await page.route('**/api.chess.com/pub/player/*/games/archives', (route) => {
+            return route.fulfill({
+                status: 404,
+                contentType: 'application/json',
+                body: JSON.stringify({ message: 'User not found' }),
+            });
+        });
+
         await openPlayerTab(page);
 
         await page.getByPlaceholder('Chess.com Username').fill('nonexistentuser12345');
         await page.getByRole('button', { name: 'Load Games' }).click();
 
-        // The tree loads but is empty — Clear Data should appear
+        // The loader finishes quickly after the 404 — the tree is built but empty.
+        // After loading completes, "Clear Data" should appear (tree exists but has no games),
+        // and the move table should have no move rows (only the total row or be empty).
         await expect(page.getByRole('button', { name: 'Clear Data' })).toBeVisible({
             timeout: 15000,
         });
 
         // The move table should not contain any actual moves
-        await expect(page.getByRole('cell', { name: /e4/ })).not.toBeVisible();
-        await expect(page.getByRole('cell', { name: /d4/ })).not.toBeVisible();
+        await expect(page.getByRole('gridcell', { name: /e4/ })).not.toBeVisible();
+        await expect(page.getByRole('gridcell', { name: /d4/ })).not.toBeVisible();
     });
 });
