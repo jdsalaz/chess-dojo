@@ -6,6 +6,7 @@ import {
     CreateNewFolder,
     Delete,
     Download,
+    CallMerge,
     Visibility,
     VisibilityOff,
 } from '@mui/icons-material';
@@ -15,6 +16,7 @@ import { AddToDirectoryDialog } from '../../../games/list/AddToDirectoryDialog';
 import { DeleteGamesDialog } from '../../../games/view/DeleteGameButton';
 import { ChangeVisibilityDialog } from './ChangeVisibilityDialog';
 import { DownloadGamesDialog } from './DownloadGamesDialog';
+import { MergeGamesDialog } from './MergeGamesDialog';
 
 interface UseBulkGameEditorResponse {
     /** The list of selected games to be edited. */
@@ -33,6 +35,8 @@ interface UseBulkGameEditorResponse {
     setVisibilitySkipped: (v: GameKey[]) => void;
     /** Whether the download PGN dialog is open. */
     downloadDialog: boolean;
+    /** Whether the merge games dialog is open. */
+    mergeDialogOpen: boolean;
     /** Whether the delete dialog is open. */
     deleteDialogOpen: boolean;
     /** The actions the user can take. */
@@ -70,6 +74,7 @@ export function useBulkGameEditor({
     const [visibilityDialog, setVisibilityDialog] = useState('');
     const [visibilitySkipped, setVisibilitySkipped] = useState<GameKey[]>([]);
     const [downloadDialog, setDownloadDialog] = useState(false);
+    const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
     const handleVisibilityChange = (updated: GameKey[], skipped: GameKey[]) => {
@@ -89,6 +94,7 @@ export function useBulkGameEditor({
         setDirectoryPickerOpen(false);
         setVisibilityDialog('');
         setDownloadDialog(false);
+        setMergeDialogOpen(false);
         setDeleteDialogOpen(false);
     };
 
@@ -132,6 +138,14 @@ export function useBulkGameEditor({
         icon: <Download />,
     });
 
+    if (games.length >= 2 && allowEdits) {
+        actions.push({
+            title: 'Merge Games',
+            onClick: () => setMergeDialogOpen(true),
+            icon: <CallMerge />,
+        });
+    }
+
     if (allowEdits) {
         actions.push({
             title: `Delete Game${games.length > 1 ? 's' : ''}`,
@@ -149,6 +163,7 @@ export function useBulkGameEditor({
         visibilitySkipped,
         setVisibilitySkipped,
         downloadDialog,
+        mergeDialogOpen,
         deleteDialogOpen,
         actions,
         handleVisibilityChange,
@@ -211,6 +226,10 @@ export function BulkGameEditorDialogs({ editor }: { editor: UseBulkGameEditorRes
 
             {editor.downloadDialog && (
                 <DownloadGamesDialog games={editor.games} onClose={editor.handleClose} />
+            )}
+
+            {editor.mergeDialogOpen && (
+                <MergeGamesDialog games={editor.games} onClose={editor.handleClose} />
             )}
 
             {editor.visibilityDialog && (

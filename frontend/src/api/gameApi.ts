@@ -6,7 +6,10 @@ import {
     GameHeader,
     UpdateGameRequest,
 } from '@jackstenglein/chess-dojo-common/src/database/game';
-import { PgnMergeRequest } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
+import {
+    MergeMultipleRequest,
+    PgnMergeRequest,
+} from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import { AxiosResponse } from 'axios';
 import { DateTime } from 'luxon';
 import { Game, GameInfo, GameReviewType, PositionComment, isGameResult } from '../database/game';
@@ -195,6 +198,15 @@ export interface GameApiContextType {
      * @returns The cohort and id of the updated game.
      */
     mergePgn: (request: PgnMergeRequest) => Promise<AxiosResponse<Pick<Game, 'cohort' | 'id'>>>;
+
+    /**
+     * Merges multiple games into a single new game.
+     * @param request The merge-multiple request.
+     * @returns The cohort and id of the newly created game.
+     */
+    mergeMultipleGames: (
+        request: MergeMultipleRequest,
+    ) => Promise<AxiosResponse<Pick<Game, 'cohort' | 'id'>>>;
 }
 
 export interface EditGameResponse {
@@ -597,6 +609,23 @@ export function mergePgn(idToken: string, request: PgnMergeRequest) {
         headers: { Authorization: `Bearer ${idToken}` },
         functionName: 'mergePgn',
     });
+}
+
+/**
+ * Sends an API request to merge multiple games into a single new game.
+ * @param idToken The id token of the current signed-in user.
+ * @param request The merge-multiple request specifying games and merge options.
+ * @returns An AxiosResponse containing the cohort and id of the newly created game.
+ */
+export function mergeMultipleGames(idToken: string, request: MergeMultipleRequest) {
+    return axiosService.post<Pick<Game, 'cohort' | 'id'>>(
+        `/game/merge-multiple`,
+        request,
+        {
+            headers: { Authorization: `Bearer ${idToken}` },
+            functionName: 'mergeMultipleGames',
+        },
+    );
 }
 
 /**
