@@ -1473,3 +1473,87 @@ func TestHandler_CompletedFlagInCursor(t *testing.T) {
 		t.Error("expected completed=false for truncated source")
 	}
 }
+
+// TestHandler_ChessComPartialMonthCursor verifies that when truncation fires
+// mid-month, the cursor points at the last indexed game's EndTime (not the
+// next-month boundary). This prevents losing games from the rest of the month
+// on resume. Scenario: a single archive (March 2024) has 3 games on March 10,
+// 15, and 20. With MAX_GAMES=2, truncation fires after the archive boundary
+// (all 3 games indexed due to batch semantics, but limit exceeded). The cursor
+// should point at the last game (March 20), NOT April 1. On resume with
+// since=March 20, the March archive is still included and per-game filtering
+// skips already-indexed games while picking up any new ones after March 20.
+func TestHandler_ChessComPartialMonthCursor(t *testing.T) {
+	// Single archive with 3 games spread across the month.
+	archivesJSON := `{"archives":["https://api.chess.com/pub/player/testuser/games/2024/03"]}`
+
+	// March games: 3 games on March 10, 15, and 20.
+	marchGames := `{"games":[
+		{"url":"https://www.chess.com/game/live/mar-10","pgn":"[Event \"Live Chess\"]\n[White \"TestUser\"]\n[Black \"OpA\"]\n[Result \"1-0\"]\n1. e4 e5 1-0","time_control":"600","end_time":1710072000,"rated":true,"uuid":"mar-10","time_class":"rapid","rules":"chess","white":{"rating":1500,"result":"win","username":"TestUser","uuid":"w1"},"black":{"rating":1400,"result":"checkmated","username":"OpA","uuid":"b1"}},
+		{"url":"https://www.chess.com/game/live/mar-15","pgn":"[Event \"Live Chess\"]\n[White \"OpB\"]\n[Black \"TestUser\"]\n[Result \"0-1\"]\n1. d4 d5 0-1","time_control":"600","end_time":1710504000,"rated":true,"uuid":"mar-15","time_class":"rapid","rules":"chess","white":{"rating":1600,"result":"resigned","username":"OpB","uuid":"w2"},"black":{"rating":1500,"result":"win","username":"TestUser","uuid":"b2"}},
+		{"url":"https://www.chess.com/game/live/mar-20","pgn":"[Event \"Live Chess\"]\n[White \"TestUser\"]\n[Black \"OpC\"]\n[Result \"1/2-1/2\"]\n1. c4 e5 1/2-1/2","time_control":"600","end_time":1710936000,"rated":true,"uuid":"mar-20","time_class":"rapid","rules":"chess","white":{"rating":1500,"result":"repetition","username":"TestUser","uuid":"w3"},"black":{"rating":1500,"result":"repetition","username":"OpC","uuid":"b3"}}
+	]}`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/pub/player/testuser/games/archives", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(archivesJSON))
+	})
+	mux.HandleFunc("/pub/player/testuser/games/2024/03", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(marchGames))
+	})
+	chesscomSrv := httptest.NewServer(mux)
+	defer chesscomSrv.Close()
+
+	lichessSrv := newLichessServer(t)
+	defer lichessSrv.Close()
+
+	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
+	defer restore()
+
+	oldRepo := repository
+	repository = subscribedUser("player1")
+	defer func() { repository = oldRepo }()
+
+	// Set game limit to 2 so truncation fires after the archive boundary.
+	t.Setenv("MAX_GAMES", "2")
+
+	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
+	event := makeEvent("player1", body)
+
+	resp, err := handler(context.Background(), event)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+
+	result := decodeJSONResponse(t, resp)
+	if !result.Truncated {
+		t.Fatal("expected truncated=true")
+	}
+	if result.Cursor == nil {
+		t.Fatal("expected cursor when truncated")
+	}
+
+	sc, ok := result.Cursor.Sources["chesscom:testuser"]
+	if !ok {
+		t.Fatal("expected chesscom:testuser in cursor sources")
+	}
+
+	// The cursor must point at the last indexed game's EndTime (March 20),
+	// NOT the next-month boundary (April 1). Using April 1 would cause
+	// FilterArchives to skip March entirely on resume, losing any games
+	// added after March 20.
+	lastGameTime := time.Unix(1710936000, 0)
+	april1 := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	if sc.LastTimestamp.Equal(april1) {
+		t.Errorf("cursor points at next-month boundary (April 1) instead of last game EndTime; this would skip the rest of March on resume")
+	}
+	if !sc.LastTimestamp.Equal(lastGameTime) {
+		t.Errorf("cursor LastTimestamp = %v, want %v (last indexed game EndTime)", sc.LastTimestamp, lastGameTime)
+	}
+}

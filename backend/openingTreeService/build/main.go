@@ -100,14 +100,13 @@ type BuildResponse struct {
 
 // fetchResult carries either a game or an error from a source fetcher goroutine.
 type fetchResult struct {
-	game  game.Game
-	err   error
-	src   Source
-	done  bool // true when this source finished iterating all games
-	// For Chess.com batches: signals an archive boundary with the next-month
-	// timestamp for cursor updates. When set, game is zero-valued.
-	archiveBoundary  bool
-	archiveNextMonth time.Time
+	game game.Game
+	err  error
+	src  Source
+	done bool // true when this source finished iterating all games
+	// For Chess.com batches: signals an archive boundary so that truncation
+	// checks are deferred until a full archive has been processed.
+	archiveBoundary bool
 }
 
 func main() {
@@ -256,10 +255,10 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 							return
 						}
 					}
-					// Signal the archive boundary so the fan-in loop can
-					// update the cursor and check truncation.
+					// Signal the archive boundary so the fan-in loop
+					// defers truncation checks until the full archive is processed.
 					select {
-					case results <- fetchResult{src: src, archiveBoundary: true, archiveNextMonth: batch.NextMonth}:
+					case results <- fetchResult{src: src, archiveBoundary: true}:
 					case <-fetchCtx.Done():
 						return
 					}
@@ -361,14 +360,10 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			continue
 		}
 
-		// Chess.com archive boundary: update the cursor timestamp and check
-		// truncation. This ensures we only truncate at archive boundaries
-		// so that on resume FilterArchives cleanly excludes already-processed months.
+		// Chess.com archive boundary: defer truncation checks until the full
+		// archive batch has been indexed. Games within the archive are still
+		// included — the cursor will point at the last indexed game's EndTime.
 		if r.archiveBoundary {
-			key := sourceKey(r.src)
-			if !r.archiveNextMonth.IsZero() {
-				lastTimestamp[key] = r.archiveNextMonth
-			}
 			if checkTruncation() {
 				break
 			}
@@ -376,7 +371,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 
 		// For Lichess sources, check truncation on every game.
-		// For Chess.com, truncation is deferred to archive boundaries above.
+		// For Chess.com, truncation checks are deferred to archive boundaries above.
 		if r.src.Type == game.SourceLichess {
 			if tree.GameCount() >= maxGames {
 				gameLimitExceeded = true
@@ -397,8 +392,13 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			log.Warnf("Failed to index game %s: %v", r.game.URL, err)
 		}
 
-		// Track per-source last timestamp for cursor.
-		// For Chess.com, timestamps are set at archive boundaries (above).
+		// Track per-source last timestamp for cursor construction.
+		// For Chess.com (oldest-first), track the max EndTime so that on
+		// resume FilterArchives(since=lastTimestamp) includes the current
+		// month's archive, and per-game date filtering skips already-indexed
+		// games. This correctly handles partial months: if we're halfway
+		// through March, the cursor points at the last indexed game in March
+		// (not April 1), so resuming tomorrow still includes March's archive.
 		// For Lichess (newest-first), track the min EndTime so that on
 		// resume we can set "until" to fetch games older than this point.
 		//
@@ -407,11 +407,15 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		// excluded on resume because Lichess's "until" parameter is exclusive.
 		// This is extremely unlikely in practice (requires two games for the same
 		// player ending in the same server-side millisecond).
-		if r.src.Type == game.SourceLichess {
-			key := sourceKey(r.src)
-			if !r.game.EndTime.IsZero() {
+		key := sourceKey(r.src)
+		if !r.game.EndTime.IsZero() {
+			if r.src.Type == game.SourceLichess {
 				if prev, ok := minTimestamp[key]; !ok || r.game.EndTime.Before(prev) {
 					minTimestamp[key] = r.game.EndTime
+				}
+			} else {
+				if prev, ok := lastTimestamp[key]; !ok || r.game.EndTime.After(prev) {
+					lastTimestamp[key] = r.game.EndTime
 				}
 			}
 		}
@@ -459,7 +463,7 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			Sources:    make(map[string]treeapi.SourceCursor, cursorSize),
 			TotalGames: priorGames + tree.GameCount(),
 		}
-		// Chess.com sources: use lastTimestamp (archive boundary) as resume point.
+		// Chess.com sources: use lastTimestamp (last indexed game EndTime) as resume point.
 		for key, ts := range lastTimestamp {
 			cursor.Sources[key] = treeapi.SourceCursor{
 				LastTimestamp: ts,
