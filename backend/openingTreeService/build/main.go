@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -513,7 +514,7 @@ func measureResponseSize(tree *openingtree.OpeningTree) int {
 
 // sourceKey returns a stable key for a source, used as cursor map keys.
 func sourceKey(src Source) string {
-	return fmt.Sprintf("%s:%s", src.Type, src.Username)
+	return fmt.Sprintf("%s:%s", src.Type, strings.ToLower(src.Username))
 }
 
 // getMaxGames returns the game limit from the MAX_GAMES environment variable,
