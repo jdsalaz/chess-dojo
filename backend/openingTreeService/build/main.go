@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +24,13 @@ import (
 	"github.com/jackstenglein/chess-dojo-scheduler/backend/openingTreeService/openingtree"
 )
 
+// maxGames is a server-side DoS guard: hard ceiling on games to index
+// per request, not a client-facing preference. The size budget (~5 MB)
+// will typically trigger first. Tests may lower this value to exercise
+// the truncation path without needing thousands of fixture games.
+var maxGames = 10000
+
 const (
-	// DefaultMaxGames is a hard safety ceiling on games to index.
-	// The size budget (~5 MB) will typically trigger first.
-	DefaultMaxGames = 10000
 
 	// SizeBudget is the approximate response size limit in bytes (~5 MB),
 	// well under Lambda's 6 MB payload limit.
@@ -94,9 +95,7 @@ type SourceError struct {
 // BuildResponse is the JSON payload returned by the handler.
 type BuildResponse struct {
 	*treeapi.Response
-	SourceErrors     []SourceError `json:"sourceErrors,omitempty"`
-	GameLimit        int           `json:"gameLimit"`
-	GameLimitExceeded bool         `json:"gameLimitExceeded"`
+	SourceErrors []SourceError `json:"sourceErrors,omitempty"`
 }
 
 // fetchResult carries either a game or an error from a source fetcher goroutine.
@@ -175,7 +174,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 	}
 
-	maxGames := getMaxGames()
 
 	// Create a deadline that fires before the Lambda hard timeout so we can
 	// return partial results instead of being killed mid-response.
@@ -305,7 +303,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	tree := openingtree.New()
 	sourceErrors := make(map[string]SourceError)
 	truncated := false
-	gameLimitExceeded := false
 
 	// Track the last game EndTime per source for cursor construction.
 	lastTimestamp := make(map[string]time.Time)
@@ -329,7 +326,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	// drains the channel, and the caller should break out of the loop.
 	checkTruncation := func() bool {
 		if tree.GameCount() >= maxGames {
-			gameLimitExceeded = true
 			truncated = true
 			drainAndBreak()
 			return true
@@ -375,7 +371,6 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		// For Chess.com, truncation checks are deferred to archive boundaries above.
 		if r.src.Type == game.SourceLichess {
 			if tree.GameCount() >= maxGames {
-				gameLimitExceeded = true
 				truncated = true
 				drainAndBreak()
 				break
@@ -440,8 +435,8 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		}
 	}
 
-	log.Infof("Built tree: %d games, %d positions, %d source errors, truncated: %v, limit exceeded: %v",
-		tree.GameCount(), tree.PositionCount(), len(sourceErrors), truncated, gameLimitExceeded)
+	log.Infof("Built tree: %d games, %d positions, %d source errors, truncated: %v",
+		tree.GameCount(), tree.PositionCount(), len(sourceErrors), truncated)
 
 	var srcErrs []SourceError
 	for _, se := range sourceErrors {
@@ -489,10 +484,8 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 	}
 
 	resp := BuildResponse{
-		Response:          treeResp,
-		SourceErrors:      srcErrs,
-		GameLimit:         maxGames,
-		GameLimitExceeded: gameLimitExceeded,
+		Response:     treeResp,
+		SourceErrors: srcErrs,
 	}
 	return api.Success(resp), nil
 }
@@ -517,14 +510,4 @@ func sourceKey(src Source) string {
 	return fmt.Sprintf("%s:%s", src.Type, strings.ToLower(src.Username))
 }
 
-// getMaxGames returns the game limit from the MAX_GAMES environment variable,
-// falling back to DefaultMaxGames.
-func getMaxGames() int {
-	if v := os.Getenv("MAX_GAMES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return DefaultMaxGames
-}
 

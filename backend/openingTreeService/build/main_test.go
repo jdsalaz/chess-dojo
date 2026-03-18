@@ -558,7 +558,7 @@ func TestHandler_SourceError(t *testing.T) {
 	}
 }
 
-func TestHandler_GameLimitExceeded(t *testing.T) {
+func TestHandler_GameLimitTruncation(t *testing.T) {
 	chesscomSrv := newChesscomServer(t, "testuser")
 	defer chesscomSrv.Close()
 
@@ -572,8 +572,10 @@ func TestHandler_GameLimitExceeded(t *testing.T) {
 	repository = subscribedUser("player1")
 	defer func() { repository = oldRepo }()
 
-	// Set a low game limit to trigger the cap.
-	t.Setenv("MAX_GAMES", "2")
+	// Lower the hard ceiling so truncation fires with few fixture games.
+	saved := maxGames
+	maxGames = 2
+	defer func() { maxGames = saved }()
 
 	body := `{"sources":[{"type":"chesscom","username":"testuser"},{"type":"lichess","username":"testplayer"}]}`
 	event := makeEvent("player1", body)
@@ -588,20 +590,12 @@ func TestHandler_GameLimitExceeded(t *testing.T) {
 
 	result := decodeJSONResponse(t, resp)
 
-	if !result.GameLimitExceeded {
-		t.Error("expected gameLimitExceeded to be true")
-	}
-	if result.GameLimit != 2 {
-		t.Errorf("expected gameLimit 2, got %d", result.GameLimit)
-	}
 	// With concurrent sources and Chess.com's batch-at-archive-boundary
 	// semantics, the exact count may overshoot maxGames. The important
-	// invariant is that truncation fired and the limit was detected.
+	// invariant is that truncation fired.
 	if len(result.Games) == 0 {
 		t.Error("expected at least 1 game")
 	}
-
-	// Hard game limit should also set truncated and produce a cursor.
 	if !result.Truncated {
 		t.Error("expected truncated to be true when game limit exceeded")
 	}
@@ -610,44 +604,6 @@ func TestHandler_GameLimitExceeded(t *testing.T) {
 	}
 	if result.Cursor.TotalGames == 0 {
 		t.Error("expected cursor.totalGames > 0")
-	}
-}
-
-func TestHandler_GameLimitNotExceeded(t *testing.T) {
-	chesscomSrv := newChesscomServer(t, "testuser")
-	defer chesscomSrv.Close()
-
-	lichessSrv := newLichessServer(t)
-	defer lichessSrv.Close()
-
-	restore := setHTTPClient(chesscomSrv.Listener.Addr().String(), lichessSrv.Listener.Addr().String())
-	defer restore()
-
-	oldRepo := repository
-	repository = subscribedUser("player1")
-	defer func() { repository = oldRepo }()
-
-	// Set limit higher than fixture count — should not trigger.
-	t.Setenv("MAX_GAMES", "1000")
-
-	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
-	event := makeEvent("player1", body)
-
-	resp, err := handler(context.Background(), event)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, resp.Body)
-	}
-
-	result := decodeJSONResponse(t, resp)
-
-	if result.GameLimitExceeded {
-		t.Error("expected gameLimitExceeded to be false")
-	}
-	if result.GameLimit != 1000 {
-		t.Errorf("expected gameLimit 1000, got %d", result.GameLimit)
 	}
 }
 
@@ -751,12 +707,12 @@ func TestHandler_DateRangeFiltering(t *testing.T) {
 
 func TestHandler_SizeBudgetTruncation(t *testing.T) {
 	// To test size-budget truncation we need enough games to exceed the budget.
-	// We override the size budget via a low MAX_GAMES so that the size check
+	// We override the size budget via a low maxGames so that the size check
 	// interval (100 games) is never reached, and instead we use a trick:
 	// set SizeBudget low by making the handler process enough games.
 	//
 	// Since we can't easily override the SizeBudget const in tests, we verify
-	// the truncation path by lowering MAX_GAMES to trigger the hard ceiling
+	// the truncation path by lowering maxGames to trigger the hard ceiling
 	// (which also sets truncated=true and produces a cursor). The size budget
 	// path uses the exact same truncation logic.
 	//
@@ -776,7 +732,9 @@ func TestHandler_SizeBudgetTruncation(t *testing.T) {
 	repository = subscribedUser("player1")
 	defer func() { repository = oldRepo }()
 
-	t.Setenv("MAX_GAMES", "1")
+	saved := maxGames
+	maxGames = 1
+	defer func() { maxGames = saved }()
 
 	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
 	event := makeEvent("player1", body)
@@ -1259,7 +1217,9 @@ func TestHandler_ChessComNoDuplicatesAcrossPages(t *testing.T) {
 
 	// Set game limit to 2 — the first archive (Feb, newest-first) has 2 games,
 	// so truncation fires at the archive boundary after indexing them.
-	t.Setenv("MAX_GAMES", "2")
+	saved := maxGames
+	maxGames = 2
+	defer func() { maxGames = saved }()
 
 	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
 	event := makeEvent("player1", body)
@@ -1291,7 +1251,7 @@ func TestHandler_ChessComNoDuplicatesAcrossPages(t *testing.T) {
 
 	// --- Page 2: resume with cursor ---
 	// Increase game limit so page 2 doesn't truncate.
-	t.Setenv("MAX_GAMES", "1000")
+	maxGames = 1000
 
 	cursorJSON, _ := json.Marshal(page1.Cursor)
 	body2 := fmt.Sprintf(`{"sources":[{"type":"chesscom","username":"testuser"}],"cursor":%s}`, cursorJSON)
@@ -1399,7 +1359,7 @@ func TestHandler_CompletedSourceSkippedOnResume(t *testing.T) {
 // cursor if truncation fires from the game limit.
 func TestHandler_CompletedFlagInCursor(t *testing.T) {
 	// Use a single Chess.com source with 2 archives (5 total games).
-	// Set MAX_GAMES=2 so truncation fires at the first archive boundary.
+	// Set maxGames=2 so truncation fires at the first archive boundary.
 	// The source won't have completed, so completed should be false.
 	// Then resume: increase limit so all games are fetched. The source
 	// completes, and if we trigger truncation again somehow the flag
@@ -1443,7 +1403,9 @@ func TestHandler_CompletedFlagInCursor(t *testing.T) {
 	defer func() { repository = oldRepo }()
 
 	// Only chesscom source. Truncate after 1 game.
-	t.Setenv("MAX_GAMES", "1")
+	saved := maxGames
+	maxGames = 1
+	defer func() { maxGames = saved }()
 
 	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
 	event := makeEvent("player1", body)
@@ -1478,7 +1440,7 @@ func TestHandler_CompletedFlagInCursor(t *testing.T) {
 // mid-month, the cursor points at the last indexed game's EndTime (not the
 // next-month boundary). This prevents losing games from the rest of the month
 // on resume. Scenario: a single archive (March 2024) has 3 games on March 10,
-// 15, and 20. With MAX_GAMES=2, truncation fires after the archive boundary
+// 15, and 20. With maxGames=2, truncation fires after the archive boundary
 // (all 3 games indexed due to batch semantics, but limit exceeded). The cursor
 // should point at the last game (March 20), NOT April 1. On resume with
 // since=March 20, the March archive is still included and per-game filtering
@@ -1517,7 +1479,9 @@ func TestHandler_ChessComPartialMonthCursor(t *testing.T) {
 	defer func() { repository = oldRepo }()
 
 	// Set game limit to 2 so truncation fires after the archive boundary.
-	t.Setenv("MAX_GAMES", "2")
+	saved := maxGames
+	maxGames = 2
+	defer func() { maxGames = saved }()
 
 	body := `{"sources":[{"type":"chesscom","username":"testuser"}]}`
 	event := makeEvent("player1", body)
