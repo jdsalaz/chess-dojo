@@ -87,7 +87,7 @@ export function followPosition(idToken: string, request: FollowPositionRequest) 
 }
 
 export interface SourceCursor {
-    lastTimestamp: string;
+    since: string;
     completed?: boolean;
 }
 

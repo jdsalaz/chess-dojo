@@ -219,15 +219,15 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 
 			// If a cursor is provided, resume from where the previous page
 			// left off. Chess.com streams oldest-first, so we use
-			// LastTimestamp as 'since'. Lichess streams newest-first, so we
-			// use LastUntil as 'until' to fetch older games.
+			// Since as 'since'. Lichess streams newest-first, so we
+			// use Until as 'until' to fetch older games.
 			if req.Cursor != nil {
 				key := sourceKey(src)
 				if sc, ok := req.Cursor.Sources[key]; ok {
-					if src.Type == game.SourceLichess && !sc.LastUntil.IsZero() {
-						until = sc.LastUntil
-					} else if !sc.LastTimestamp.IsZero() {
-						since = sc.LastTimestamp
+					if src.Type == game.SourceLichess && !sc.Until.IsZero() {
+						until = sc.Until
+					} else if !sc.Since.IsZero() {
+						since = sc.Since
 					}
 				}
 			}
@@ -466,14 +466,14 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 		// Chess.com sources: use lastTimestamp (last indexed game EndTime) as resume point.
 		for key, ts := range lastTimestamp {
 			cursor.Sources[key] = treeapi.SourceCursor{
-				LastTimestamp: ts,
+				Since: ts,
 				Completed:    completedSources[key],
 			}
 		}
-		// Lichess sources: use minTimestamp as LastUntil for backwards pagination.
+		// Lichess sources: use minTimestamp as Until for backwards pagination.
 		for key, ts := range minTimestamp {
 			cursor.Sources[key] = treeapi.SourceCursor{
-				LastUntil: ts,
+				Until: ts,
 				Completed: completedSources[key],
 			}
 		}

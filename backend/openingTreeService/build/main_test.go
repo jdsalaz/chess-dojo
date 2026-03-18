@@ -811,7 +811,7 @@ func TestHandler_SizeBudgetTruncation(t *testing.T) {
 }
 
 func TestHandler_CursorResume(t *testing.T) {
-	// Verify that providing a Lichess cursor with lastUntil adjusts the
+	// Verify that providing a Lichess cursor with until adjusts the
 	// "until" parameter (not "since") for the Lichess fetcher. Lichess
 	// returns games newest-first, so pagination uses until=minTimestamp.
 	var lichessRequestURL string
@@ -839,12 +839,12 @@ func TestHandler_CursorResume(t *testing.T) {
 	repository = subscribedUser("player1")
 	defer func() { repository = oldRepo }()
 
-	// Send a request with a cursor that has a lichess lastUntil timestamp.
+	// Send a request with a cursor that has a lichess until timestamp.
 	cursorTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	body := fmt.Sprintf(`{
 		"sources":[{"type":"lichess","username":"testplayer"}],
 		"cursor":{
-			"sources":{"lichess:testplayer":{"lastUntil":"%s"}},
+			"sources":{"lichess:testplayer":{"until":"%s"}},
 			"totalGames":50
 		}
 	}`, cursorTime.Format(time.RFC3339))
@@ -941,7 +941,7 @@ func TestBuildRequest_FrontendJSONContract(t *testing.T) {
 		},
 		{
 			name: "with cursor and date range",
-			json: `{"sources":[{"type":"chesscom","username":"user1"},{"type":"lichess","username":"user2"}],"since":"2024-06-01T00:00:00.000Z","until":"2024-06-30T23:59:59.999Z","cursor":{"sources":{"chesscom:user1":{"lastTimestamp":"2024-06-15T12:00:00Z"}},"totalGames":100}}`,
+			json: `{"sources":[{"type":"chesscom","username":"user1"},{"type":"lichess","username":"user2"}],"since":"2024-06-01T00:00:00.000Z","until":"2024-06-30T23:59:59.999Z","cursor":{"sources":{"chesscom:user1":{"since":"2024-06-15T12:00:00Z"}},"totalGames":100}}`,
 			checkFunc: func(t *testing.T, req BuildRequest) {
 				if len(req.Sources) != 2 {
 					t.Fatalf("expected 2 sources, got %d", len(req.Sources))
@@ -1359,7 +1359,7 @@ func TestHandler_CompletedSourceSkippedOnResume(t *testing.T) {
 		],
 		"cursor":{
 			"sources":{
-				"chesscom:testuser":{"lastTimestamp":"2024-02-01T00:00:00Z","completed":true}
+				"chesscom:testuser":{"since":"2024-02-01T00:00:00Z","completed":true}
 			},
 			"totalGames":50
 		}
@@ -1550,10 +1550,10 @@ func TestHandler_ChessComPartialMonthCursor(t *testing.T) {
 	lastGameTime := time.Unix(1710936000, 0)
 	april1 := time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
 
-	if sc.LastTimestamp.Equal(april1) {
+	if sc.Since.Equal(april1) {
 		t.Errorf("cursor points at next-month boundary (April 1) instead of last game EndTime; this would skip the rest of March on resume")
 	}
-	if !sc.LastTimestamp.Equal(lastGameTime) {
-		t.Errorf("cursor LastTimestamp = %v, want %v (last indexed game EndTime)", sc.LastTimestamp, lastGameTime)
+	if !sc.Since.Equal(lastGameTime) {
+		t.Errorf("cursor Since = %v, want %v (last indexed game EndTime)", sc.Since, lastGameTime)
 	}
 }
