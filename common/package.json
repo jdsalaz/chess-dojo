@@ -4,7 +4,6 @@
     "description": "Common code shared between ChessDojo website, mobile app and backend",
     "main": "index.ts",
     "scripts": {
-        "test": "jest --config jestconfig.json",
         "lint": "eslint ."
     },
     "author": "jackstenglein",
