@@ -1,10 +1,7 @@
 import { BatchGetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
-import { Chess, Move } from '@jackstenglein/chess';
-import {
-    MergeMultipleRequest,
-    MergeMultipleSchema,
-} from '@jackstenglein/chess-dojo-common/src/pgn/merge';
+import { Chess } from '@jackstenglein/chess';
+import { MergeMultipleSchema } from '@jackstenglein/chess-dojo-common/src/pgn/merge';
 import { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -14,10 +11,8 @@ import {
     requireUserInfo,
 } from '../../directoryService/api';
 import { dynamo, gamesTable, success } from './create';
-import { getPlayer, mergeComments, mergeDrawables, mergeNags } from './mergeUtils';
+import { recursiveMergeLine } from './mergeUtils';
 import { Game } from './types';
-
-const frontendHost = process.env['frontendHost'];
 
 /**
  * Lambda handler that merges multiple games into a single new game.
@@ -72,7 +67,16 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
             const source = new Chess({ pgn: game.pgn });
             source.seek(null);
 
-            recursiveMergeLine(source.history(), source, target, null, request, game);
+            const citation = request.citeSource
+                ? { source, cohort: game.cohort, id: game.id }
+                : undefined;
+
+            recursiveMergeLine(source.history(), target, null, {
+                commentMergeType: request.commentMergeType,
+                nagMergeType: request.nagMergeType,
+                drawableMergeType: request.drawableMergeType,
+                citation,
+            });
         }
 
         // Create a new game with the merged PGN
@@ -168,64 +172,4 @@ async function putGame(game: Game) {
     );
 }
 
-/**
- * Recursively merges the given line into the target Chess instance.
- * Unlike the single-game merge, this does not require matching starting positions.
- * @param line The line to merge into the Chess instance.
- * @param source The source Chess instance being merged.
- * @param target The target Chess to merge the line into.
- * @param currentTargetMove The current move to start from in the target Chess.
- * @param request The merge options.
- * @param game The source game, used for citation when citeSource is enabled.
- */
-function recursiveMergeLine(
-    line: Move[],
-    source: Chess,
-    target: Chess,
-    currentTargetMove: Move | null,
-    request: MergeMultipleRequest,
-    game: Game,
-) {
-    for (const move of line) {
-        const newTargetMove = target.move(move.san, {
-            previousMove: currentTargetMove,
-            skipSeek: true,
-        });
-        if (!newTargetMove) {
-            throw new ApiError({
-                statusCode: 400,
-                publicMessage: `Unable to merge: invalid move ${move.san} at ply ${move.ply}`,
-            });
-        }
-
-        mergeComments(move, newTargetMove, request.commentMergeType);
-        mergeNags(move, newTargetMove, request.nagMergeType);
-        mergeDrawables(move, newTargetMove, request.drawableMergeType);
-
-        for (const variation of move.variations) {
-            recursiveMergeLine(variation, source, target, currentTargetMove, request, game);
-        }
-
-        currentTargetMove = newTargetMove;
-    }
-
-    if (request.citeSource && currentTargetMove) {
-        const white = getPlayer(
-            source.header().tags.White,
-            source.header().tags.WhiteElo?.value,
-        );
-        const black = getPlayer(
-            source.header().tags.Black,
-            source.header().tags.BlackElo?.value,
-        );
-        const date = source.header().getRawValue('Date');
-        const comment = `[${white} - ${black}${date ? ` ${date}` : ''}](${frontendHost}/games/${game.cohort}/${game.id})`;
-
-        if (currentTargetMove.commentAfter) {
-            currentTargetMove.commentAfter += `\n\n${comment}`;
-        } else {
-            currentTargetMove.commentAfter = comment;
-        }
-    }
-}
 
