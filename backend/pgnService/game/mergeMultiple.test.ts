@@ -189,6 +189,11 @@ describe('mergeMultiple handler', () => {
             (call) => call[0].constructor.name === 'PutItemCommand',
         );
         assert.isDefined(putCall, 'should save the merged game');
+
+        // Verify the merged PGN contains move trees from both games
+        const pgn = putCall![0].input.Item.pgn.S as string;
+        assert.include(pgn, 'Nf3', 'merged PGN should contain Nf3 from game1');
+        assert.include(pgn, 'Bc4', 'merged PGN should contain Bc4 from game2');
     });
 
     test('happy path: merges three games, all lines present in result', async () => {
@@ -220,6 +225,16 @@ describe('mergeMultiple handler', () => {
 
         const result = await handler(event, {} as any, () => {});
         assert.equal((result as any).statusCode, 200);
+
+        // Verify the merged PGN contains all three opening moves
+        const putCall = mockSend.mock.calls.find(
+            (call) => call[0].constructor.name === 'PutItemCommand',
+        );
+        assert.isDefined(putCall, 'should save the merged game');
+        const pgn = putCall![0].input.Item.pgn.S as string;
+        assert.include(pgn, 'e4', 'merged PGN should contain e4 from game1');
+        assert.include(pgn, 'd4', 'merged PGN should contain d4 from game2');
+        assert.include(pgn, 'c4', 'merged PGN should contain c4 from game3');
     });
 
     test('rejects when caller does not own a private (unlisted) game', async () => {
