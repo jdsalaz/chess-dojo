@@ -305,6 +305,7 @@ functions:
           - ${param:GamesTableArn}
 
   mergeMultiple:
+    timeout: 28
     handler: game/mergeMultiple.handler
     environment:
       frontendHost: ${file(../config-${sls:stage}.yml):frontendHost}
