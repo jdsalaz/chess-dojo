@@ -129,28 +129,32 @@ async function fetchGames(
     gameKeys: { cohort: string; id: string }[],
 ): Promise<Game[]> {
     const games: Game[] = [];
-    let keys: Record<string, { S: string }>[] = gameKeys.map(({ cohort, id }) => ({
+    const allKeys: Record<string, { S: string }>[] = gameKeys.map(({ cohort, id }) => ({
         cohort: { S: cohort },
         id: { S: id },
     }));
 
-    while (keys.length > 0) {
-        const response = await dynamo.send(
-            new BatchGetItemCommand({
-                RequestItems: {
-                    [gamesTable]: {
-                        Keys: keys,
+    for (let i = 0; i < allKeys.length; i += 100) {
+        let keys = allKeys.slice(i, i + 100);
+
+        while (keys.length > 0) {
+            const response = await dynamo.send(
+                new BatchGetItemCommand({
+                    RequestItems: {
+                        [gamesTable]: {
+                            Keys: keys,
+                        },
                     },
-                },
-            }),
-        );
+                }),
+            );
 
-        const items = response.Responses?.[gamesTable] ?? [];
-        for (const item of items) {
-            games.push(unmarshall(item) as Game);
+            const items = response.Responses?.[gamesTable] ?? [];
+            for (const item of items) {
+                games.push(unmarshall(item) as Game);
+            }
+
+            keys = (response.UnprocessedKeys?.[gamesTable]?.Keys ?? []) as typeof keys;
         }
-
-        keys = (response.UnprocessedKeys?.[gamesTable]?.Keys ?? []) as typeof keys;
     }
 
     if (games.length !== gameKeys.length) {
