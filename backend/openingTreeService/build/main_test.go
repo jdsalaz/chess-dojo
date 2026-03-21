@@ -1274,11 +1274,15 @@ func TestHandler_ChessComNoDuplicatesAcrossPages(t *testing.T) {
 		}
 	}
 
-	// Verify we got games from both pages (complete coverage).
-	totalGames := len(page1URLs) + len(page2.Games)
-	if totalGames == 0 {
-		t.Error("expected games across both pages")
+	// Page 2 must return the Feb games that were not in page 1.
+	// If the cursor incorrectly narrows both since and until, the
+	// inverted window (since > until) causes zero results on resume.
+	if len(page2.Games) == 0 {
+		t.Fatal("page 2: expected games from the second archive, got 0 — cursor may have created an impossible time window")
 	}
+
+	// Verify complete coverage across both pages.
+	totalGames := len(page1URLs) + len(page2.Games)
 	t.Logf("Page 1: %d games, Page 2: %d games, Total: %d", len(page1URLs), len(page2.Games), totalGames)
 }
 

@@ -212,19 +212,26 @@ func handler(ctx context.Context, event api.Request) (api.Response, error) {
 			// Start with request-supplied bounds; the cursor narrows them.
 			since, until := sinceTime, untilTime
 
-			// If a cursor is provided, override whichever bounds it
-			// carries. Both Since and Until are always stored; the
-			// source's pagination direction determines which one
-			// actually narrows the window, but we apply both
-			// unconditionally so the consumer is source-agnostic.
+			// If a cursor is provided, apply only the bound that
+			// advances pagination for this source's direction.
+			// Chess.com processes archives oldest-first, so Since
+			// (the max EndTime seen) skips already-indexed games.
+			// Lichess streams newest-first, so Until (the min
+			// EndTime seen) resumes from where we left off.
+			// Applying both bounds would create an impossible
+			// window (since > until) and return zero results.
 			if req.Cursor != nil {
 				key := sourceKey(src)
 				if sc, ok := req.Cursor.Sources[key]; ok {
-					if !sc.Since.IsZero() {
-						since = sc.Since
-					}
-					if !sc.Until.IsZero() {
-						until = sc.Until
+					switch src.Type {
+					case game.SourceChesscom:
+						if !sc.Since.IsZero() {
+							since = sc.Since
+						}
+					case game.SourceLichess:
+						if !sc.Until.IsZero() {
+							until = sc.Until
+						}
 					}
 				}
 			}
