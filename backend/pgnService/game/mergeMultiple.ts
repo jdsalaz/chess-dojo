@@ -67,6 +67,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
             const source = new Chess({ pgn: game.pgn });
             source.seek(null);
 
+            if (source.normalizedFen() !== target.normalizedFen()) {
+                throw new ApiError({
+                    statusCode: 400,
+                    publicMessage:
+                        'Unable to merge: the games do not start from the same position',
+                });
+            }
+
             const citation = request.citeSource
                 ? { source, cohort: game.cohort, id: game.id }
                 : undefined;

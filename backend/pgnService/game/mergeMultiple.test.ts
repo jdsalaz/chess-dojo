@@ -278,6 +278,34 @@ describe('mergeMultiple handler', () => {
         assert.equal((result as any).statusCode, 200);
     });
 
+    test('returns 400 when games have mismatched starting positions', async () => {
+        const game1 = makeGame({
+            cohort: 'c1',
+            id: 'g1',
+            pgn: '1. e4 *', // standard starting position
+        });
+        const game2 = makeGame({
+            cohort: 'c1',
+            id: 'g2',
+            pgn: '[SetUp "1"]\n[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]\n\n1... e5 *', // position after 1. e4
+        });
+        mockDynamoGames([game1, game2]);
+
+        const event = makeEvent({
+            games: [
+                { cohort: 'c1', id: 'g1' },
+                { cohort: 'c1', id: 'g2' },
+            ],
+            headerSource: { cohort: 'c1', id: 'g1' },
+        });
+
+        const result = await handler(event, {} as any, () => {});
+        assert.equal((result as any).statusCode, 400);
+
+        const body = JSON.parse((result as any).body);
+        assert.include(body.message, 'same position');
+    });
+
     test('returns 400 when headerSource is not in the games list', async () => {
         const game1 = makeGame({ cohort: 'c1', id: 'g1', pgn: '1. e4 *' });
         const game2 = makeGame({ cohort: 'c1', id: 'g2', pgn: '1. d4 *' });
