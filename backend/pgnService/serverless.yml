@@ -306,6 +306,8 @@ functions:
 
   mergeMultiple:
     handler: game/mergeMultiple.handler
+    environment:
+      frontendHost: ${file(../config-${sls:stage}.yml):frontendHost}
     events:
       - httpApi:
           path: /game/merge-multiple
